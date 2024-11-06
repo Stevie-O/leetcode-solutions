@@ -1,326 +1,106 @@
-// this is still too slow.
-// is there a way I can prune down the search list by a guaranteed amount each step? Hrm.
-
 //fn FindType(_: !) -> bool { panic!(); }
 struct Solution {}
 
-use std::ops::Range;
 use std::cmp::Ordering;
-//use std::collections::HashMap;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum Direction { NonDecreasing, Decreasing, }
-// is there a way to make this private? only SequenceState needs it...
-impl From<Ordering> for Direction { fn from(value: Ordering) -> Self { match value {
-        Ordering::Less | Ordering::Equal => Direction::NonDecreasing,
-        Ordering::Greater => Direction::Decreasing,
-} } }
-
-#[derive(Debug, Default)]
-enum SequenceState<T> {
-    #[default]
-    Empty,
-    OneItem(T, Range<usize>),
-    Sequence(T, Range<usize>, Direction),
-}
-
-
-impl<T: Ord + Copy> SequenceState<T> {
-    // finalize? finish?
-    pub fn finish(self) -> Option<(Direction, Range<usize>)> {
-        match self {
-            // doable without turbofish?
-            SequenceState::Empty::<T> => None,
-            // technically, a single-item subsequence could be considered as being in either direction.
-            // I have arbitrarily chosen 'nondecreasing'.
-            SequenceState::OneItem(_, range) => Some( (Direction::NonDecreasing, range) ),
-            SequenceState::Sequence(_, range, dir) => Some( (dir, range) ),
-        }
-    }
-    pub fn push(&mut self, index: usize, item: T) -> Option<(Direction, Range<usize>)> {
-        let retval : Option<(Direction, Range<_>)>;
-        // is there a more appropriate way to write this?
-        // Note to self: 'match self' was miserable here. 'match *self' works although
-        // I'm quite impressed that the compiler recognized it as valid
-        
-        // AH. it _doesn't_.  But rustc didn't complain about it until I got
-        // all the right &s and *sin the match body.
-        
-        (*self, retval) = match std::mem::replace(self, Default::default()) {
-            // the very first iteration
-            SequenceState::Empty => (SequenceState::OneItem(item, Range { start: index, end: index + 1}), None),
-            SequenceState::OneItem(prev, cur_range) => {
-                (SequenceState::Sequence(item, Range { start: cur_range.start, end: index + 1}, prev.cmp(&item).into()), None)
-            },
-            SequenceState::Sequence(prev, cur_range, dir) if /* FindType(prev) && */ dir == prev.cmp(&item).into() =>
-                // still going up (or down)
-                (SequenceState::Sequence(item, Range { start: cur_range.start, end: index + 1}, dir), None),
-            
-            SequenceState::Sequence(_, cur_range, dir) =>
-                // we've changed directions. return the current subsequence and start a new one-item
-                // subsequence.
-                (SequenceState::OneItem(item, Range { start: index, end: index + 1}), Some( (dir, cur_range ))),
-        };
-        retval
-    }
-}
-
-
-/// RangeSeqBuilder is used by RangeSeq::new
-#[derive(Debug)]
-struct RangeSeqBuilder<T>
+/// This function serves two purposes:
+/// 1. Given a slice of T : Ord, return a Vec<(T, T)> _minmax_ of the same length
+//      such that minmax[n] is the (minimum, maximum) of all values from slice[n..slice.len()] 
+/// 2. Maturity test
+fn find_cum_bounds<T: std::fmt::Debug + Copy + Ord>(nums: &[T]) -> Vec<(T, T)>
 {
-    subsequence_state: SequenceState<T>,
-    subsequences: Vec<(Direction, Range<usize>)>,
-    //fast_ramp: Option<Range<usize>>,
+    // degenerate case
+    if nums.len() == 0 { return Default::default(); }
+    let /*mut*/ min = nums[nums.len()-1];
+    let /*mut*/ max = min;
+    eprintln!("min={:?} max={:?}", min, max);
+    // I wonder if rustc is actually smart enough to just fill the array backwards
+    // this... did not work
+    /*
+    nums.iter()
+        .rev()
+        .map(|&item| {
+            min = std::cmp::min(min, item);
+            max = std::cmp::max(max, item);
+            (min, max)
+        })
+        .rev()
+        .collect()
+    */
+    // ahh here we go!
+    // https://github.com/rust-lang/rust/issues/75410
+    let mut tmp : Vec<_> = nums.iter()
+        .rev()
+        .scan( (min, max), |state, &item| {
+                let min = std::cmp::min(state.0, item);
+                let max = std::cmp::max(state.1, item);
+                *state = (min, max);
+                Some(*state)
+        })
+        //.rev()
+        .collect()
+        ;
+    tmp.reverse();
+    tmp
 }
 
-impl<T: Ord + Copy> RangeSeqBuilder<T> {
-    pub fn new() -> Self { RangeSeqBuilder { subsequence_state: SequenceState::Empty, subsequences: Default::default() } }
-    // fold()? accumulate()? append()? push()?
-    pub fn add(&mut self, index: usize, item: T) {
-        if let Some(new_subseq) = self.subsequence_state.push(index, item) {
-        /*
-            if let (Direction::NonDecreasing, r) = &new_subseq {
-                if self.fast_ramp.is_none_or(|fr| fr.len() < r.len()) {
-                    self.fast_ramp = r.clone();
-                }
-            }
-            */
-            self.subsequences.push(new_subseq);
-        }
-    }
-    // build? finish?
-    pub fn build(self) -> RangeSeq {
-        let RangeSeqBuilder { subsequence_state, mut subsequences } = self;
-        if let Some(new_subseq) = subsequence_state.finish() {
-            subsequences.push(new_subseq);
-        }
-        RangeSeq { subsequences: subsequences }
-    }
-}
-
-#[derive(Debug)]
-pub struct RangeSeq {
-    /* okay, my ADHD is too strong to keep all of this in my head at once.
-     * The purpose of this class is to, given a &Vec<T> (or any other Iterator<T>)
-     * for a comparable T (i.e. `where T: Ord`), we can divide it into subsequences
-     * that are each either decreasing or nondecreasing.
-     *
-     * Some examples:
-     * - [1,2,3,4,5] and [1,1,1,1,1] are each comprised of a single nondecreasing sequence
-     * - [1,2,3,5,4] has a nondecreasing sequence [1,2,3,5] and a (degenerate) decreasing sequence [4]
-     * - [1,2,3,6,5,4] is a nondecreasing sequence [1,2,3,6] followed by a decreasing sequence [5,4]
-     * - [5,4,3,2,1] is a single decreasing sequence
-     * - [1,3,2,4,5,7,6,8] is made up of four nondecreasing sequences: [1, 3] [2, 4] [5, 7] [6, 8]
-     *                      also, this example is how I realized that there isn't automatically a decreasing sequence between every nondecreasing one
-     */
-    subsequences: Vec<(Direction, Range<usize>)>,
-    
-    //fast_ramp: Option<Range<usize>>,
-    
-    // I'm not sure of a better way to make this "Rusty".
-    
-}
-// I needed help from rustc and the Rust discord server
-// to figure out how to express this
-// I is an Iterator such that I::Item is Copy (and Ord)
-/*
-impl<I> RangeSeq
-where
-    I: Iterator,
-    <I as Iterator>::Item : Ord + Copy
-*/
-impl RangeSeq
-{
-    // had to learn new generic syntax for this one
-    pub fn new<I>(iterator: I) -> Self
-    where I : Iterator, <I as Iterator>::Item : Ord + Copy
-    {
-        let builder = iterator.enumerate()
-            .fold(RangeSeqBuilder::new(), |mut state, (index, value)| { state.add(index, value); state })
-            ;
-        builder.build()
-    }
-    
-    /// Returns an iterator over the subsequences which begins at the first subsequence that contains 
-    /// @vec_index.
-    pub fn find_index(&self, vec_index : usize) -> impl Iterator<Item = &(Direction, Range<usize>)> {
-        match self.subsequences.binary_search_by_key(&vec_index, |r| r.1.start) {
-            Ok(subseq_index) => self.subsequences.iter().skip(subseq_index),
-            Err(subseq_index) => self.subsequences.iter().skip(subseq_index - 1),
-        }
-    }
-}
-
-// is this the best way to express this?
-fn find_next_i<'a, I, T>(nums: &[T], supremum: T, mut current_index : usize, current_range: &mut (Direction, Range<usize>), subseq_iterator: &mut I) -> usize
-where
-    I : Iterator<Item = &'a (Direction, Range<usize>)>,
-    T : Ord + std::fmt::Debug
-{
-    // GIVEN THAT 
-    // - @current_index lies within @current_range AND
-    // - @current_range and @subseq_iterator are from a RangeSeq subsequence list
-
-    // Find the next index _n_ of @nums
-    // AFTER @current_index (i.e. starting at @current_index + 1)
-    // such that @nums[n] LESS THAN @supremum
-    // If no such index exists, return nums.len()
-    
-    // man is this really the least unwieldy way to do this
-    fn advance_iterator_to<'a, I : Iterator<Item = &'a (Direction, Range<usize>)>>(advance_to: usize, idx: &mut usize, cr: &mut (Direction, Range<usize>), it: &mut I) 
-    {
-        assert!(advance_to > *idx); // must move forward
-        assert!(advance_to <= cr.1.end); // must not try to move directly beyond the current subsequence
-        *idx = advance_to;
-        if advance_to == cr.1.end {
-            match it.next() {
-                Some(x) => { *cr = x.clone(); },
-                None => {},
-            }
-        }
-    }
-    
-    // advance by 1 (we need to skip over the initial current_index)
-    advance_iterator_to(current_index + 1, &mut current_index, current_range, subseq_iterator);
-    eprintln!("[fni] advanced to index {}, current range is {:?}", current_index, current_range);
-
-    while current_index < nums.len() && nums[current_index] >= supremum {
-        eprintln!("[fni] current_index = {} nums[current_index] = {:?} supremum={:?}", current_index, nums[current_index], supremum );
-        match &current_range {
-            (Direction::NonDecreasing, ref r) => {
-                // all values from nums[current_index] to nums[r.end-1] are GREATER THAN OR EQUAL TO supremum
-                // therefore, we can skip to r.end
-                eprintln!("[fni] current_range is {:?}, seeking to {}", current_range, r.end);
-                advance_iterator_to(r.end, &mut current_index, current_range, subseq_iterator);
-            },
-            (Direction::Decreasing, ref r) if r.end == current_index + 1 => { 
-                // degenerate case. I don't think this should happen?
-                eprintln!("i guess this *can* happen");
-                advance_iterator_to(r.end, &mut current_index, current_range, subseq_iterator);
-            }
-            (Direction::Decreasing, ref r) => {
-                let seek_offset = 
-                    nums[current_index..r.end]
-                    // do a binary search of DESCENDING looking for a value that is, basically,
-                    // between @supremum-1 and @supremum. Note that this will always return an Err<usize>
-                    // where [current_index+n] is the index of the first value less than @supremum,
-                    // OR if no match, it will a value such that current_index+n == cr.end
-                    .binary_search_by(|n| 
-                        match (*n).cmp(&nums[current_index]) {
-                            Ordering::Greater | Ordering::Equal => Ordering::Less,
-                            Ordering::Less => Ordering::Greater,
-                        }
-                    )
-                    .err().unwrap();
-                eprintln!("[fni] current_range is Decreasing, seek_offset = {}", seek_offset);
-                advance_iterator_to(current_index + seek_offset, &mut current_index, current_range, subseq_iterator);
-                // at this point, either current_index == nums.len() or nums[current_index] < supremum
-            }
-        }
-    }
-    eprintln!("[fni] current_index = {}", current_index);
-    
-    current_index
-}
-    
-
+// there used to be over 200 lines of code here, defining multiple structs
+// and enums and lots of code, that turned out to be unnecessary
 
 impl Solution {
     fn max_width_ramp(nums: Vec<i32>) -> i32 {
         // looks like I'm gonna have to be clever here; O(n^2) is too slow
         // okay, first, let's find all DOWNWARD runs. DOWNWARD runs are ranges
         // where all of the elements in the range are GREATER than the next element.
-        let seqlist = RangeSeq::new(nums.iter().copied());
-        eprintln!("seqlist = {:?}", seqlist);
-        if seqlist.subsequences.len() == 1 {
-            // only one subsequence means that there are only two possibilities:
-            // - NonDecreasing means that the entire list is a "ramp"
-            // - Decreasing means that there is no [i, j] such that i < j and nums[i] <= nums[j]
-            return match seqlist.subsequences[0] {
-                (Direction::NonDecreasing, _) => nums.len() - 1,
-                (Direction::Decreasing, _) => 0
-            } as i32;
-        }
+        let minmax = find_cum_bounds(nums.as_slice());
+        
+        eprintln!("max: {:?}", minmax.iter().map(|(_, max)| max).collect::<Vec<_>>());
 
         // the longest "ramp", the value to be returned from this function
-        let mut longest_ramp : usize;
-        // I could avoid a second pass through seqlist.subsequences() by collecting this data
-        // as part of the build process.  However, tracking it was a HUGE PAIN.
-        // whatever the longest ramp is, it's AT LEAST as long as the longest nondecreasing subsequence
-        // in the input.
-        longest_ramp = seqlist.subsequences.iter()
-            .filter_map(|sseq| match sseq { (Direction::NonDecreasing, r) => Some(r.len()), _ => None })
-            .max()
-            .unwrap_or(0_usize)
-            ;
-        // the smallest 'num[i]' such that (i, i+longest_ramp) is a ramp
-        // if i32::MAX was a valid input value, I'd need this to be Option<i32>,
-        // but since the maximum input value is 50_000, this is fine.
-        let mut longest_numi : i32 = i32::MAX;
+        let mut longest_ramp : usize = 0;
         let mut i : usize = 0;
-        let mut i_seq_iter = seqlist.subsequences.iter();
-        let mut i_seq = i_seq_iter.next().unwrap().clone();
-        while i < nums.len() - longest_ramp - 1 {
-            let mut j : usize = i + longest_ramp + 1;
-            while j < nums.len() {
-                eprintln!("looking for values greater than [{}]={} starting at {}", i, nums[i], j);
-                for subseq in seqlist.find_index(j) {
-                    eprintln!("considering: {:?}", subseq);
-                    let (ss_dir, ss_range) = subseq;
-                    //assert!(ss_range.contains(j));
-                    // if j is in the middle of a NonDecreasing range, immediately slide to
-                    // the last element in that range, because nums[r.end-1] is the best possible value
-                    // to check.
-                    j = match ss_dir {
-                        Direction::NonDecreasing => ss_range.end - 1,
-                        Direction::Decreasing => j,
-                    };
-                    while j < ss_range.end {
-                        let ij_dir : Direction = nums[i].cmp(&nums[j]).into();
-                        // okay this is a bit thorny. we've got a 2x2 here
-/* https://www.tablesgenerator.com/markdown_tables#
-| i ? j | subseq dir | longest_ramp action | j action                |   |
-|-------|------------|---------------------|-------------------------|---|
-| <=    | decreasing | update longest_ramp | advance by 1            |   |
-| <=    | increasing | update longest_ramp | advance by 1            |   |
-| >     | decreasing | no update           | jump to end of sequence |   |
-| >     | increasing | no update           | advance by 1            |   |
-*/
-                        j = match ij_dir {
-                            Direction::NonDecreasing => { 
-                                longest_ramp = j - i;
-                                longest_numi = nums[i];
-                                
-                                eprintln!("new longest ramp: [{}..{}] = ({}, {}) = length {}", i, j, nums[i], nums[j], longest_ramp);
+        while i < nums.len() - 1 - longest_ramp {
+            let numi = nums[i];
+            // minmax.1 is in DESCENDING order
+            // we want to find the latest value that is GREATER THAN OR EQUAL TO num[i]
+            let j_start = i + longest_ramp;
+            // binary search: O(log n)
+            let j_offset = 
+                minmax[j_start + 1 .. minmax.len()]
+                .binary_search_by(|&(_, numj)| 
+                            match numj.cmp(&numi) {
+                                // if numj < numi, look EARLIER in the list
+                                Ordering::Less => Ordering::Greater,
+                                // otherwise (numj >= numi), look LATER in the list
+                                Ordering::Greater | Ordering::Equal => Ordering::Less,
+                            })
+                // since our binary search doesn't return 'equal' this will always fail,
+                // and 
+                .err().unwrap()
+                ;
+            // okay, now j_offset is:
+            //  - 0 if 'i' has no solution
+            //  - x+1 if j = j_start + x
+            if j_offset == 0 {
+                eprintln!("i={} numi={} -> no solutions found", i, numi);
+            } else {
+                let j = j_start + j_offset;
+                println!("i={} numi={} -> j={} j-i={} numi={} numj={}", i, numi, j, j-i, numi, nums[j]);
+                longest_ramp = j-i;
+            }
+            
+            // okay, let's find the next 'i'
+            // the only useful 'i' to look for is one where num[i'] < numi
+            // meh. to 
 
-                                j + 1
-                            }
-                            Direction::Decreasing =>
-                                match ss_dir {
-                                    Direction::Decreasing => ss_range.end,
-                                    Direction::NonDecreasing => j + 1,
-                                },
-                        };
-                    }
-                }
+            // this is a linear (O(n)) search BUT if we execute the full O(n)
+            // we only do it *once*. 
+            // the sum total of all executions of this loop, across the entire method call,
+            // will never exceed n.
+            i += 1;  // advance by 1
+            while i < nums.len() - 1 - longest_ramp && nums[i] > numi {
+                i += 1;
             }
-            if longest_ramp > 0 &&
-                i + longest_ramp < nums.len() && nums[i] < longest_numi &&
-                nums[i] <= nums[i + longest_ramp]
-            {
-                longest_numi = nums[i];
-                eprintln!("found a new longest_numi {} at index {}", longest_numi, i);
-            }
-            // okay, so at this point, if there is a ramp longer than
-            // longest_ramp, it starts at an index where nums[i] is
-            // LESS THAN longest_numi
-            let next_i = find_next_i(nums.as_slice(), longest_numi, i, &mut i_seq, &mut i_seq_iter);
-            eprintln!("find_next_i: longest_numi = {} i = {} nums[i] = {} next_i = {} nums[next_i] = {:?}",
-                        longest_numi, i, nums[i], next_i, if next_i< nums.len() { Some(nums[i]) } else { None }
-                    );
-            i = next_i;
         }
         longest_ramp as i32
     }

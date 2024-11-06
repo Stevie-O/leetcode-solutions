@@ -294,12 +294,12 @@ impl SudokuSchemeGenerator {
 //          [2] - (box index, cell index within that box)
 const CELL_LOCATIONS : [[RegionIdAndLocation; NUM_REGION_TYPES]; GRID_SIZE] = SudokuSchemeGenerator::compute_grid_cell_locations();
 
-// ROW_CELLS[n] (n is 0..REGION_SIZE) is the grid cell indices of every cell in that row
-const ROW_CELLS : RegionCellMap = SudokuSchemeGenerator::compute_rows();
-// COL_CELLS[n] (n is 0..REGION_SIZE) contains the grid cell indices of every cell in that column
-const COL_CELLS : RegionCellMap = SudokuSchemeGenerator::compute_cols();
-// BOX_CELLS[n] (n is 0..REGION_SIZE) contains the grid cell indices for every cell in that box
-const BOX_CELLS : RegionCellMap = SudokuSchemeGenerator::compute_boxes();
+const REGION_CELLS : [RegionCellMap; NUM_REGION_TYPES] = [
+                            SudokuSchemeGenerator::compute_rows(),
+                            SudokuSchemeGenerator::compute_cols(),
+                            SudokuSchemeGenerator::compute_boxes(),
+                        ];
+
 // CELL_CONFLICTS[n] (n is 0..GRID_SIZE) contains the grid cell indices for every cell that conflicts with that cell
 const CELL_CONFLICTS : [[usize; NUM_CONFLICTS]; GRID_SIZE] = SudokuSchemeGenerator::compute_grid_conflicts();
 
@@ -372,6 +372,35 @@ impl PlacementMask {
         }
     }
 }
+
+// bit_iter() returns a sequence of u32s containing the bits that are set in the number
+trait IntoBitIterator { type BitIteratorType : Iterator<Item = u32>; fn bit_iter(self) -> Self::BitIteratorType; }
+macro_rules! define_bit_iterator {
+    ($num_type:ty, $iterator_type:ident) => {
+        struct $iterator_type ($num_type);
+        impl Iterator for $iterator_type {
+            type Item = u32;
+            fn next(&mut self) -> Option<Self::Item> {
+                if self.0 == 0 { None }
+                else {
+                    let bitnum = self.0.trailing_zeros();
+                    self.0 &= self.0 - 1;
+                    Some(bitnum)
+                }
+            }
+        }
+        impl IntoBitIterator for $num_type {
+            type BitIteratorType = $iterator_type;
+            fn bit_iter(self) -> Self::BitIteratorType {
+                $iterator_type(self)
+            }
+        }
+    }
+}
+define_bit_iterator!(i16, I16BitIterator);
+define_bit_iterator!(u16, U16BitIterator);
+define_bit_iterator!(u128, U128BitIterator);
+
 struct PlacementMaskBitIterator(PlacementMaskType);
 impl Iterator for PlacementMaskBitIterator {
     type Item = u32;
@@ -385,6 +414,7 @@ impl Iterator for PlacementMaskBitIterator {
         }
     }
 }
+
 impl Debug for PlacementMask {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         if self.0 < 0 {
@@ -405,7 +435,10 @@ type SymPlacement = [[PlacementMask; NUM_REGIONS]; NUM_REGION_TYPES];
 struct SudokuSolver {
     grid: [PlacementMask; GRID_SIZE],
     sym_placement: [SymPlacement; NUM_SYMBOLS],
+    sym_placements_left: [usize; NUM_SYMBOLS], // [sym] = number of MISSING copies of @sym from the board
+    unsolved_sym_count : usize,                // number of symbols that haven't been fully placed
     touched_cells: u128,
+    touched_syms:  PlacementMaskType,
     dead: bool,
 }
 
@@ -414,7 +447,10 @@ impl Default for SudokuSolver {
         SudokuSolver {
             grid: [Default::default(); GRID_SIZE],
             sym_placement: [Default::default(); NUM_SYMBOLS],
+            sym_placements_left: [NUM_REGIONS; NUM_SYMBOLS],
+            unsolved_sym_count: NUM_SYMBOLS,
             touched_cells: 0,
+            touched_syms:  0,
             dead: false,
         }
     }
@@ -431,7 +467,7 @@ impl SudokuSolver {
         let mut col = 0;
         for cell_value in iterator {
             if let Some(sym) = cell_value {
-                solver.try_place(sym, row, col).unwrap();
+                solver.try_place_by_row_col(sym, row, col).unwrap();
             }
             col += 1;
             if col >= REGION_SIZE { 
@@ -441,26 +477,45 @@ impl SudokuSolver {
         }
         solver
     }
+    
+    pub fn is_solved(&self) -> bool { self.unsolved_sym_count == 0 }
 
     // Attempt to place the symbol with ID @symbol (0 <= @symbol < NUM_SYMBOLS)
     // at grid position (row, col) (0 <= row, col < REGION_SIZE).
     // Returns an error if the specified symbol cannot be placed there.
-    pub fn try_place(&mut self, symbol: usize, row: usize, col: usize) -> Result<(), PlaceError> {
-        assert!(symbol < NUM_SYMBOLS);
+    pub fn try_place_by_row_col(&mut self, symbol: usize, row: usize, col: usize) -> Result<(), PlaceError> {
         assert!(row < REGION_SIZE);
         assert!(col < REGION_SIZE);
-        if self.dead { return Err("a previous try_place() failed in such a way that this object is no longer usable".into()); }
         let grid_cell = row * REGION_SIZE + col;
+        self.try_place_by_grid_cell(symbol, grid_cell)
+    }
+
+    // Attempt to place the symbol with ID @symbol (0 <= @symbol < NUM_SYMBOLS)
+    // at grid cell @grid_cell (0 <= grid_cell < GRID_SIZE)
+    // Returns an error if the specified symbol cannot be placed there.
+    pub fn try_place_by_grid_cell(&mut self, symbol: usize, grid_cell: usize) -> Result<(), PlaceError> {
+        assert!(grid_cell < GRID_SIZE);
+        assert!(symbol < NUM_SYMBOLS);
+        if self.dead { return Err("a previous try_place() failed in such a way that this object is no longer usable".into()); }
         if !self.grid[grid_cell].is_candidate(symbol) {
-            return Err(format!("Symbol {symbol} cannot be placed at row {row}, column {col} -> {:?}", self.grid[grid_cell]));
+            return Err(format!("Symbol {symbol} cannot be placed at grid cell #{grid_cell} -> {:?}", self.grid[grid_cell]));
         }
         
         self.grid[grid_cell].solve(symbol);
+        // one fewer copy of @symbol left to be placed on the board!
+        self.sym_placements_left[symbol] -= 1;
+        if self.sym_placements_left[symbol] == 0 {
+            println!("symbol #{symbol} is fully solved");
+            self.unsolved_sym_count -= 1;
+            if self.unsolved_sym_count == 0 {
+                println!("all symbols have been solved");
+            }
+        }
 
         let grid_cell_locs = CELL_LOCATIONS[grid_cell];
         // sanity check!
-        debug_assert_eq!(grid_cell_locs[0], (row, col));
-        debug_assert_eq!(grid_cell_locs[1], (col, row));
+        //debug_assert_eq!(grid_cell_locs[0], (row, col));
+        //debug_assert_eq!(grid_cell_locs[1], (col, row));
         // end sanity checks
         let sym_placement = &mut self.sym_placement[symbol];
         for (placement_map, (region_id, region_cell_index)) in 
@@ -471,10 +526,15 @@ impl SudokuSolver {
 
         self.dead = true; // if an error occurs during placement, leave ourselves in a 'dead' state
         for &other_cell in CELL_CONFLICTS[grid_cell].iter() {
-            self.touched_cells |= 1_u128 << grid_cell;
-            self.grid[other_cell].remove_candidate(symbol)
+            let was_touched = self.grid[other_cell].remove_candidate(symbol)
                 .map_err(|_| String::from("Placing {symbol} at row {row}, column {col} leaves grid cell #{other_cell} unsolvable"))
                 ?;
+            if was_touched {
+                // if we changed the possibility mask for this grid cell, make a note that
+                // we touched that cell AND this symbol
+                self.touched_cells |= 1_u128 << grid_cell;
+                self.touched_syms |= 1 << symbol;
+            }
             let other_cell_locs = CELL_LOCATIONS[other_cell];
             for (placement_map, (region_id, region_cell_index))
                 in sym_placement.iter_mut().zip(other_cell_locs.into_iter())
@@ -486,6 +546,72 @@ impl SudokuSolver {
         }
         self.dead = false; // if we got here, everything worked
         Ok(())
+    }
+    
+    /// Attempts to determine if there are any cells where there is only one possible value.
+    // Returns true if any progress was made.
+    pub fn solve_simple(&mut self) -> bool {
+        // a prior step (either the previous solve iteration, or the initial placement of the givens)
+        // will have narrowed down the possibilities for a puzzle.
+        // touched_{cells,syms} are both bitmasks
+        // touched_cells: bit n is set if grid cell #n's candidate mask has been narrowed down
+        // touched_syms:  bit n is set if any of the possible positions for symbol #n has been ruled out
+        let touched_cells = std::mem::replace(&mut self.touched_cells, 0);
+        let touched_syms  = std::mem::replace(&mut self.touched_syms,  0);
+        if touched_cells == 0 && touched_syms == 0 { panic!("unsolvable, at least by this algorithm"); }
+        let mut any_progress = false;
+        // check if we've narrowed the set of possible symbols for a cell down to just one symbol
+        // (this is actually pretty rare, in my experience).
+        for touched_cell in touched_cells.bit_iter().map(|cell| cell as usize) {
+            if let Some(mask) = self.grid[touched_cell].candidate_mask() {
+                if mask.count_ones() == 1 {
+                    // only one possible symbol left!
+                    let symbol = mask.ilog2() as usize;
+                    
+                    println!("Grid cell #{touched_cell} ({:?}) only has one possible symbol left: {symbol}", 
+                        CELL_LOCATIONS[touched_cell][0]
+                            );
+                    self.try_place_by_grid_cell(symbol, touched_cell).unwrap();
+                    any_progress = true;
+                }
+            }
+        }
+        // it's possible that by narrowing the set of possible symbols for one cell, we can nail down a *different*
+        // cell's symbol.  (This is much more common, in my experience.)
+        // for example, if we removed '4' as a possible symbol from one cell,
+        //      there might be only one '4' left in that same row, column, or box
+        for touched_sym in touched_syms.bit_iter().map(|sym| sym as usize)
+            //.filter(|&sym| self.sym_placements_left[sym] > 0)
+        {
+            if self.sym_placements_left[touched_sym] == 0 { continue; }
+            // the Rust language design wants me to use iterators and not indices
+            // but I'm pretty sure I can't do that here, because I would need to call methods on self
+            // while I've borrowed &self.sym_placement
+            // personal experience suggests that I have a lot of chains where "I ruled out 4 here, so 4 is there,
+            // which means 3 is over there, which means 1 is over there".
+            
+            // the current design doesn't really handle that very efficiently.
+            // I think that, to do it more efficiently, rather than separate touched_cells and touched_syms,
+            // have a thing that tracks _which_ symbol was ruled out from _which_ cell.
+            // then, when (say) we rule out symbol #3 from grid cell #53, we can simply check the candidate positions 
+            //      for symbol #3 in the same row, column, and box as grid cell #53 (3 regions), rather than
+            //      all rows, columns, and boxes (9 + 9 + 9 = 27 regions)
+            for region_type_id in 0..NUM_REGION_TYPES {
+                for region_id in 0..NUM_REGIONS {
+                    if let Some(mask) = self.sym_placement[touched_sym][region_type_id][region_id].candidate_mask() {
+                        if mask.count_ones() == 1 {
+                            let region_cell_index = mask.ilog2() as usize;
+                            let grid_cell = REGION_CELLS[region_type_id][region_id][region_cell_index];
+                            println!("Region type #{region_type_id} #{region_id} only has one possible position left for symbol #{touched_sym}: index {region_cell_index} = grid cell #{grid_cell}");
+                            self.try_place_by_grid_cell(touched_sym, grid_cell).unwrap();
+                            any_progress = true;
+                        }
+                    }
+                }
+            }
+        }
+        
+        any_progress
     }
 }
 
@@ -501,7 +627,7 @@ fn main() {
         ]
     {
         println!("input: {:?}", input);
-        let solver = SudokuSolver::from(
+        let mut solver = SudokuSolver::from(
                     input.into_iter().flat_map(|row| row.into_iter().map(|cell_str|
                             match cell_str.chars().next().unwrap() {
                                 ch @ '1' ..= '9' => Some( (ch.to_digit(10).unwrap() - 1) as usize ),

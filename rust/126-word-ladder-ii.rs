@@ -1,15 +1,19 @@
-/* this  version 2.1 which is nearly the same core implementation as 2.0 but 
- * it accounts for the possibility of beginWord already being in the word list, which makes it slightly more efficient.
- * begin="aaaaa", end="ggggg", wordList=["aaaaa","caaaa","cbaaa","daaaa","dbaaa","eaaaa","ebaaa","faaaa","fbaaa","gaaaa","gbaaa","haaaa","hbaaa","iaaaa","ibaaa","jaaaa","jbaaa","kaaaa","kbaaa","laaaa","lbaaa","maaaa","mbaaa","naaaa","nbaaa","oaaaa","obaaa","paaaa","pbaaa","bbaaa","bbcaa","bbcba","bbdaa","bbdba","bbeaa","bbeba","bbfaa","bbfba","bbgaa","bbgba","bbhaa","bbhba","bbiaa","bbiba","bbjaa","bbjba","bbkaa","bbkba","bblaa","bblba","bbmaa","bbmba","bbnaa","bbnba","bboaa","bboba","bbpaa","bbpba","bbbba","abbba","acbba","dbbba","dcbba","ebbba","ecbba","fbbba","fcbba","gbbba","gcbba","hbbba","hcbba","ibbba","icbba","jbbba","jcbba","kbbba","kcbba","lbbba","lcbba","mbbba","mcbba","nbbba","ncbba","obbba","ocbba","pbbba","pcbba","ccbba","ccaba","ccaca","ccdba","ccdca","cceba","cceca","ccfba","ccfca","ccgba","ccgca","cchba","cchca","cciba","ccica","ccjba","ccjca","cckba","cckca","cclba","cclca","ccmba","ccmca","ccnba","ccnca","ccoba","ccoca","ccpba","ccpca","cccca","accca","adcca","bccca","bdcca","eccca","edcca","fccca","fdcca","gccca","gdcca","hccca","hdcca","iccca","idcca","jccca","jdcca","kccca","kdcca","lccca","ldcca","mccca","mdcca","nccca","ndcca","occca","odcca","pccca","pdcca","ddcca","ddaca","ddada","ddbca","ddbda","ddeca","ddeda","ddfca","ddfda","ddgca","ddgda","ddhca","ddhda","ddica","ddida","ddjca","ddjda","ddkca","ddkda","ddlca","ddlda","ddmca","ddmda","ddnca","ddnda","ddoca","ddoda","ddpca","ddpda","dddda","addda","aedda","bddda","bedda","cddda","cedda","fddda","fedda","gddda","gedda","hddda","hedda","iddda","iedda","jddda","jedda","kddda","kedda","lddda","ledda","mddda","medda","nddda","nedda","oddda","oedda","pddda","pedda","eedda","eeada","eeaea","eebda","eebea","eecda","eecea","eefda","eefea","eegda","eegea","eehda","eehea","eeida","eeiea","eejda","eejea","eekda","eekea","eelda","eelea","eemda","eemea","eenda","eenea","eeoda","eeoea","eepda","eepea","eeeea","ggggg","agggg","ahggg","bgggg","bhggg","cgggg","chggg","dgggg","dhggg","egggg","ehggg","fgggg","fhggg","igggg","ihggg","jgggg","jhggg","kgggg","khggg","lgggg","lhggg","mgggg","mhggg","ngggg","nhggg","ogggg","ohggg","pgggg","phggg","hhggg","hhagg","hhahg","hhbgg","hhbhg","hhcgg","hhchg","hhdgg","hhdhg","hhegg","hhehg","hhfgg","hhfhg","hhigg","hhihg","hhjgg","hhjhg","hhkgg","hhkhg","hhlgg","hhlhg","hhmgg","hhmhg","hhngg","hhnhg","hhogg","hhohg","hhpgg","hhphg","hhhhg","ahhhg","aihhg","bhhhg","bihhg","chhhg","cihhg","dhhhg","dihhg","ehhhg","eihhg","fhhhg","fihhg","ghhhg","gihhg","jhhhg","jihhg","khhhg","kihhg","lhhhg","lihhg","mhhhg","mihhg","nhhhg","nihhg","ohhhg","oihhg","phhhg","pihhg","iihhg","iiahg","iiaig","iibhg","iibig","iichg","iicig","iidhg","iidig","iiehg","iieig","iifhg","iifig","iighg","iigig","iijhg","iijig","iikhg","iikig","iilhg","iilig","iimhg","iimig","iinhg","iinig","iiohg","iioig","iiphg","iipig","iiiig","aiiig","ajiig","biiig","bjiig","ciiig","cjiig","diiig","djiig","eiiig","ejiig","fiiig","fjiig","giiig","gjiig","hiiig","hjiig","kiiig","kjiig","liiig","ljiig","miiig","mjiig","niiig","njiig","oiiig","ojiig","piiig","pjiig","jjiig","jjaig","jjajg","jjbig","jjbjg","jjcig","jjcjg","jjdig","jjdjg","jjeig","jjejg","jjfig","jjfjg","jjgig","jjgjg","jjhig","jjhjg","jjkig","jjkjg","jjlig","jjljg","jjmig","jjmjg","jjnig","jjnjg","jjoig","jjojg","jjpig","jjpjg","jjjjg","ajjjg","akjjg","bjjjg","bkjjg","cjjjg","ckjjg","djjjg","dkjjg","ejjjg","ekjjg","fjjjg","fkjjg","gjjjg","gkjjg","hjjjg","hkjjg","ijjjg","ikjjg","ljjjg","lkjjg","mjjjg","mkjjg","njjjg","nkjjg","ojjjg","okjjg","pjjjg","pkjjg","kkjjg","kkajg","kkakg","kkbjg","kkbkg","kkcjg","kkckg","kkdjg","kkdkg","kkejg","kkekg","kkfjg","kkfkg","kkgjg","kkgkg","kkhjg","kkhkg","kkijg","kkikg","kkljg","kklkg","kkmjg","kkmkg","kknjg","kknkg","kkojg","kkokg","kkpjg","kkpkg","kkkkg","ggggx","gggxx","ggxxx","gxxxx","xxxxx","xxxxy","xxxyy","xxyyy","xyyyy","yyyyy","yyyyw","yyyww","yywww","ywwww","wwwww","wwvww","wvvww","vvvww","vvvwz","avvwz","aavwz","aaawz","aaaaz"]
- *
- * hrm.  this also failed in the playground (SIGKILL).
- */
+// version 2.2, which uses a newtype wrapper around (usize) for word IDs
+// but is otherwise the same as 1.1
 
 use std::hash::{Hash, Hasher};
 use std::collections::{HashSet, HashMap};
 use std::fmt::{Debug, Formatter, Error};
 
 struct Solution {}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+struct WordId(usize);
+impl From<usize> for WordId { fn from(value : usize) -> Self { WordId(value) } }
+impl From<WordId> for usize { fn from(value: WordId) -> Self { value.0 } }
+impl WordId {
+    pub fn to_string<'a>(&self, words: &'a Vec<String>) -> &'a String { &words[self.0] }
+}
 
 #[derive(Eq)]
 struct PunchedWord<'a>
@@ -45,22 +49,22 @@ impl<'a> PartialEq for PunchedWord<'a> {
 
 #[derive(Default, Clone)]
 struct WordPath {
-    order: Vec<usize>,
+    order: Vec<WordId>,
     //visited: HashSet<usize>,
 }
 
 impl Debug for WordPath {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> { self.order.fmt(f) }
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> { (self.order).fmt(f) }
 }
 
 impl WordPath {
-    pub fn end(&self) -> usize { self.order[self.order.len()-1] }
+    pub fn end(&self) -> WordId { self.order[self.order.len()-1] }
     //pub fn is_visited(&self, id : usize) -> bool { self.visited.contains(&id) }
-    pub fn visit(&mut self, id : usize) {
+    pub fn visit(&mut self, id : WordId) {
         self.order.push(id);
         //self.visited.insert(id);
     }
-    pub fn new(id: usize) -> Self {
+    pub fn new(id: WordId) -> Self {
         WordPath {
             order: vec![ id ],
             //visited: { let mut h = HashSet::new(); h.insert(id); h },
@@ -74,12 +78,13 @@ impl Solution {
         // this isn't really spelled out, but end_word must be in the word list, while begin_word **might** not be
         let end_id =
             word_list.iter().enumerate().find(|(_, word)| *word == &end_word).map(|(id, _)| id);
-        let end_id = match end_id {
+        let end_id : WordId = match end_id {
             Some(id) => id,
             None => { return Default::default(); }
-        };
+        }
+        .into();
         // find begin_id. TODO: figure out how to do this and end_id in one_pass
-        let begin_id = match
+        let begin_id : WordId = match
             word_list.iter().enumerate().find(|(_, word)| *word == &begin_word).map(|(id, _)| id)
         {
             Some(id) => id,
@@ -89,7 +94,8 @@ impl Solution {
                 word_list.push(begin_word);
                 id
             }
-        };
+        }
+        .into();
         let word_list = word_list; // strip 'mut' from word_list
         //eprintln!("number of words in word list: {}", word_list.len());
         // build the graph: time complexity is roughly O(mn + (n')^2) where:
@@ -97,11 +103,13 @@ impl Solution {
         //   n = number of words in wordlist
         //   n' = largest number of words that are exactly one letter off from one another
         // this assumes O(1) on hashmap insert/lookup
-        let mut graph : Vec<Vec<usize>> = word_list.iter().map(|_| Default::default()).collect();
+        let mut graph : Vec<Vec<WordId>> = word_list.iter().map(|_| Default::default()).collect();
         for idx in 0 .. word_len {
-            let mut linkmap : HashMap<PunchedWord, Vec<usize>> = HashMap::new();
+            let mut linkmap : HashMap<PunchedWord, Vec<WordId>> = HashMap::new();
             // find all sets of words that match EXCEPT for the character at position [idx]
+            // Rustiness: should I use map here instead of fixing up word_id in the loop body?
             for (word_id, word) in word_list.iter().enumerate() {
+                let word_id : WordId = word_id.into();
                 let pw = PunchedWord::new(word, idx);
                 linkmap.entry(pw).and_modify(|v| v.push(word_id)).or_insert(vec![word_id]);
             }
@@ -113,9 +121,9 @@ impl Solution {
                 for (chain_idx, w1) in chain_list[0..chain_list.len()-1].iter().enumerate() {
                     for w2 in &chain_list[chain_idx+1..] {
                         // there is an edge from w1->w2
-                        graph[*w1].push(*w2);
+                        graph[w1.0].push(*w2);
                         // and there is an edge from w2->w1
-                        graph[*w2].push(*w1);
+                        graph[w2.0].push(*w1);
                     }
                 }
             }
@@ -125,7 +133,7 @@ impl Solution {
         
         let mut chains = vec![ WordPath::new(begin_id) ];
         let mut reached_end = false;
-        let mut reached : HashSet<usize> = HashSet::new();
+        let mut reached : HashSet<_> = HashSet::new();
         reached.insert(begin_id);
         
         //eprintln!("chains: {:?}", chains);
@@ -133,14 +141,14 @@ impl Solution {
         // breadth-first search to reach end_id
         while !reached_end && chains.len() > 0 {
             let mut next_chains : Vec<WordPath> = Vec::new();
-            let mut next_reached : HashSet<usize> = HashSet::new();
+            let mut next_reached : HashSet<_> = HashSet::new();
 
             for mut chain in chains {
-                let mut buffered_next_id : Option<usize> = None;
+                let mut buffered_next_id : Option<WordId> = None;
                 // I cribbed this from the Linux bridge code
                 // basically, we optimize for the case where there is only one valid next step
                 // the graph was initialized with empty vectors, so graph.get() should never fail
-                let links = &graph[chain.end()];
+                let links = &graph[chain.end().0];
                 //eprintln!("links: {:?}", links);
                 for &link in links.iter().filter(|&id| !reached.contains(id)) {
                     next_reached.insert(link);
@@ -165,7 +173,7 @@ impl Solution {
         chains
             .into_iter()
             .filter(|wp| wp.end() == end_id)
-            .map(|wp| wp.order.into_iter().map(|id| word_list[id].clone()).collect())
+            .map(|wp| wp.order.into_iter().map(|id| id.to_string(&word_list).clone()).collect())
             .collect()
     }
 }

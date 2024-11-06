@@ -1,9 +1,8 @@
 // 2684. maximum number of moves in a grid
 
-this version processess in a forward direction
-still getting the wrong answer for the supplied teswt case: 57-213-222-241-276 
-
-use std::collections::HashSet;
+// this version works with the initially failing test case (I think it was an unsigned integer wraparound bug before)
+// but it fails with a different one: [[137,112,78,67],[76,65,122,135]]
+// ahh, an off-by-one error means it will never move from the 2nd row (index 1) up to the first (index 0)
 
 impl Solution {
     pub fn max_moves(grid: Vec<Vec<i32>>) -> i32 {
@@ -17,9 +16,11 @@ impl Solution {
                     .flat_map(|&(rown, value, moves)|
                         {
                             let grid_ref = &grid;
-                            (rown-1..=rown+1)
+                            let first_row = if rown > 0 { rown - 1 } else { rown };
+                            let last_row = if rown + 1 < num_rows { rown + 1 } else { rown };
+                            (first_row..=last_row)
                                 .filter_map(move |target_row| 
-                                    if (0..num_rows).contains(&target_row) && value < grid_ref[target_row][coln]
+                                    if value < grid_ref[target_row][coln]
                                     { Some( (target_row, grid_ref[target_row][coln], moves+1) )}
                                     else { None }
                             )

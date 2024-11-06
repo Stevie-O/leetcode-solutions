@@ -1,8 +1,7 @@
 // 15. 3Sum
-// (gives wrong answer)
 
-use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+struct Solution{}
+
 use std::collections::HashSet;
 
 // looks like LeetCode hasn't updated to Rust 1.82.0 as of 2024-10-24. this is not very surprising, since Rust 1.82.0 came out exactly 1 week ago (2024-10-17)
@@ -33,6 +32,8 @@ impl Solution {
 
         nums.sort();
         let nums = nums; // no more mut
+        
+        eprintln!("sorted_nums = {:?}", nums);
 
         // degenerate case check: trivially unsolvable
         if nums[0] > 0 || nums[nums.len() - 1] < 0 {
@@ -82,6 +83,10 @@ impl Solution {
 
                     first_nonneg + zero_count
             };
+            
+        eprintln!("len = {}, zero_count = {zero_count}, i_maximum_excl = {i_maximum_excl}, k_minimum_incl = {k_minimum_incl}", nums.len());
+        eprintln!("possible nums[i]: {:?}", &nums[0..i_maximum_excl]);
+        eprintln!("possible nums[k]: {:?}", &nums[k_minimum_incl..]);
 
         // I don't think it's possible to do much better than O(n^2) on this one
         let mut i_range = 0..i_maximum_excl;
@@ -140,5 +145,17 @@ impl Solution {
             } // 'j' loop
         } // 'i' loop
         seen.into_iter().map(Vec::from).collect()
+    }
+}
+
+fn main() {
+    for input in [ 
+            vec![34,55,79,28,46,33,2,48,31,-3,84,71,52,-3,93,15,21,-43,57,-6,86,56,94,74,83,-14,28,-66,46,-49,62,-11,43,65,77,12,47,61,26,1,13,29,55,-82,76,26,15,-29,36,-29,10,-70,69,17,49],
+        ]
+    {
+        // gotta move everything out of testcase at once
+        println!("input: {:?}", input);
+        let ans = Solution::three_sum(input);
+        println!("--> answer: {:?}", ans);
     }
 }

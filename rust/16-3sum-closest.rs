@@ -1,3 +1,5 @@
+struct Solution{}
+
 // 16. 3Sum Closest
 // given an array and a target sum,
 // find the closest value to target_sum you can get for any three distinct indices
@@ -62,9 +64,9 @@ impl Solution {
         let mut previous_i_val = nums[0] - 1;
 
         let mut num_slice = nums.as_slice();
-        while let [ i_val, rest @ .. ] = num_slice {
+        while let [ i_val, ref rest @ .. ] = *num_slice {
             if rest.len() < 2 { break; }
-            let i_val = *i_val;
+            //let i_val = *i_val;
             // if the same number occurs multiple times, don't check it again
             if i_val != previous_i_val {
                 previous_i_val = i_val;
@@ -80,5 +82,18 @@ impl Solution {
         }
 
         best_sum
+    }
+}
+
+fn main() {
+    for input in [
+            (vec![-2,-1,1,4],0)
+        ]
+    {
+        // gotta move everything out of testcase at once
+        println!("input: {:?}", input);
+        let (v, t) = input;
+        let ans = Solution::three_sum_closest(v, t);
+        println!("--> answer: {:?}", ans);
     }
 }

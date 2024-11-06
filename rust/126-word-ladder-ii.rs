@@ -1,5 +1,4 @@
-// version 2.2, which uses a newtype wrapper around (usize) for word IDs
-// but is otherwise the same as 1.1
+// CURRENT WORKING VERSION
 
 use std::hash::{Hash, Hasher};
 use std::collections::{HashSet, HashMap};
@@ -131,42 +130,44 @@ impl Solution {
         let graph = graph; // strip 'mut' from graph
         // at this point, graph[x] should be a vec with all words reachable from x
         
-        let mut chains = vec![ WordPath::new(begin_id) ];
+        let mut chains : Vec<(WordId, Vec<WordPath>)> = vec![ (begin_id, vec![ WordPath::new(begin_id) ] ) ];
+        // chains elements are: (X, the list of all WordPaths where wp.end() == X)
         let mut reached_end = false;
         let mut reached : HashSet<_> = HashSet::new();
         reached.insert(begin_id);
         
-        //eprintln!("chains: {:?}", chains);
+        eprintln!("chains: {:?}", chains);
         
         // breadth-first search to reach end_id
-        while !reached_end && chains.len() > 0 {
-            let mut next_chains : Vec<WordPath> = Vec::new();
-            let mut next_reached : HashSet<_> = HashSet::new();
+        while !reached_end && !chains.is_empty() {
+            // next_chains[X] is the list of WordPaths where wp.end() == X
+            let mut next_chains : HashMap<WordId, Vec<WordPath>> = HashMap::new();
 
-            for mut chain in chains {
+            for (chain_end, &mut chain) in chains {
                 let mut buffered_next_id : Option<WordId> = None;
                 // I cribbed this from the Linux bridge code
                 // basically, we optimize for the case where there is only one valid next step
                 // the graph was initialized with empty vectors, so graph.get() should never fail
-                let links = &graph[chain.end().0];
-                //eprintln!("links: {:?}", links);
+                let links = &graph[chain_id.0];
+                eprintln!("links: {:?}", links);
                 for &link in links.iter().filter(|&id| !reached.contains(id)) {
                     next_reached.insert(link);
                     if link == end_id { reached_end = true; }
                     if let Some(prev_buffered_id) = buffered_next_id.replace(link) {
+                        let dest_list = 
                         let mut newchain = chain.clone();
                         newchain.visit(prev_buffered_id);
-                        //eprintln!("considering: {:?}", newchain);
+                        eprintln!("considering: {:?}", newchain);
                         next_chains.push(newchain);
                     }
                 }
                 if let Some(prev_buffered_id) = buffered_next_id.take() {
                     chain.visit(prev_buffered_id);
-                    //eprintln!("considering: {:?}", chain);
+                    eprintln!("considering: {:?}", chain);
                     next_chains.push(chain);
                 }
             }
-            reached.extend(next_reached.iter());
+            //reached.extend(next_reached.iter());
             // move over one
             chains = next_chains;
         }

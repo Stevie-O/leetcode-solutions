@@ -1,22 +1,27 @@
+//#![feature(never_type)]
+//fn FindType(_: !) -> bool { panic!(); }
 struct Solution {}
 
 use std::ops::Range;
 use std::cmp::Ordering;
 //use std::collections::HashMap;
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum Direction { NonDecreasing, Decreasing, }
 // is there a way to make this private? only SequenceState needs it...
 impl From<Ordering> for Direction { fn from(value: Ordering) -> Self { match value {
-        Ordering::Greater | Ordering::Equal => Direction::NonDecreasing,
-        Ordering::Lesser => Direction::Decreasing,
+        Ordering::Less | Ordering::Equal => Direction::NonDecreasing,
+        Ordering::Greater => Direction::Decreasing,
 } } }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 enum SequenceState<T> {
+    #[default]
     Empty,
     OneItem(T, Range<usize>),
     Sequence(T, Range<usize>, Direction),
 }
+
 
 impl<T: Ord + Copy> SequenceState<T> {
     // finalize? finish?
@@ -30,24 +35,29 @@ impl<T: Ord + Copy> SequenceState<T> {
             SequenceState::Sequence(_, range, dir) => Some( (dir, range) ),
         }
     }
-    pub fn push(&mut self, index: usize, item: T) -> Option<(Direction, Range<_>)> {
+    pub fn push(&mut self, index: usize, item: T) -> Option<(Direction, Range<usize>)> {
         let retval : Option<(Direction, Range<_>)>;
         // is there a more appropriate way to write this?
-        (*self, retval) = match self {
+        // Note to self: 'match self' was miserable here. 'match *self' works although
+        // I'm quite impressed that the compiler recognized it as valid
+        
+        // AH. it _doesn't_.  But rustc didn't complain about it until I got
+        // all the right &s and *sin the match body.
+        
+        (*self, retval) = match std::mem::replace(self, Default::default()) {
             // the very first iteration
             SequenceState::Empty => (SequenceState::OneItem(item, Range { start: index, end: index + 1}), None),
             SequenceState::OneItem(prev, cur_range) => {
-                let dir = if prev <= item { Direction::NonDecreasing } else { Direction::Decreasing };
-                (SequenceState::Sequence(item, Range { start: cur_range.start, end: index + 1}, dir), None)
+                (SequenceState::Sequence(item, Range { start: cur_range.start, end: index + 1}, prev.cmp(&item).into()), None)
             },
-            SequenceState::Sequence(prev, cur_range, dir) if dir == prev.cmp(&item).into() =>
+            SequenceState::Sequence(prev, cur_range, dir) if /* FindType(prev) && */ dir == prev.cmp(&item).into() =>
                 // still going up (or down)
                 (SequenceState::Sequence(item, Range { start: cur_range.start, end: index + 1}, dir), None),
             
-            SequenceState::Sequence(prev, cur_range, dir) =>
+            SequenceState::Sequence(_, cur_range, dir) =>
                 // we've changed directions. return the current subsequence and start a new one-item
                 // subsequence.
-                (SequenceState::OneItem(item, Range { start: index, end: index + 1}), (dir, cur_range)),
+                (SequenceState::OneItem(item, Range { start: index, end: index + 1}), Some( (dir, cur_range ))),
         };
         retval
     }
@@ -65,15 +75,15 @@ struct RangeSeqBuilder<T>
 impl<T: Ord + Copy> RangeSeqBuilder<T> {
     pub fn new() -> Self { RangeSeqBuilder { subsequence_state: SequenceState::Empty, subsequences: Default::default() } }
     // fold()? accumulate()? append()? push()?
-    pub fn add(&mut self, item: T) {
-        if let Some(new_subseq) = self.subsequence_state.push(item) {
+    pub fn add(&mut self, index: usize, item: T) {
+        if let Some(new_subseq) = self.subsequence_state.push(index, item) {
             self.subsequences.push(new_subseq);
         }
     }
     // build? finish?
     pub fn build(self) -> RangeSeq {
-        let RangeSeqBuilder { state, mut subsequences } = self;
-        if let Some(new_subseq) = state.finish() {
+        let RangeSeqBuilder { subsequence_state, mut subsequences } = self;
+        if let Some(new_subseq) = subsequence_state.finish() {
             subsequences.push(new_subseq);
         }
         RangeSeq { subsequences: subsequences }
@@ -102,22 +112,28 @@ pub struct RangeSeq {
 }
 // I needed help from rustc and the Rust discord server
 // to figure out how to express this
-// I is an Iterator such that I::Item is Copy
+// I is an Iterator such that I::Item is Copy (and Ord)
+/*
 impl<I> RangeSeq
 where
     I: Iterator,
-    <I as Iterator>::Item : Copy
+    <I as Iterator>::Item : Ord + Copy
+*/
+impl RangeSeq
 {
-    pub fn new(iterator: I) -> Self {
+    // had to learn new generic syntax for this one
+    pub fn new<I>(iterator: I) -> Self
+    where I : Iterator, <I as Iterator>::Item : Ord + Copy
+    {
         let builder = iterator.enumerate()
-            .fold(RangeSeqBuilder::new(), |state, (index, &value)| { state.push(index, value); state })
+            .fold(RangeSeqBuilder::new(), |mut state, (index, value)| { state.add(index, value); state })
             ;
         builder.build()
     }
-
-}
-impl RangeSeq {
     
+    pub fn find_index(&self, index : usize) -> _ {
+        match self.subsequences.binary_search()
+    }
 }
 
 impl Solution {
@@ -127,6 +143,25 @@ impl Solution {
         // where all of the elements in the range are GREATER than the next element.
         let seqlist = RangeSeq::new(nums.iter().copied());
         eprintln!("seqlist = {:?}", seqlist);
+        if seqlist.subsequences.len() == 1 {
+            // only one subsequence means that there are only two possibilities:
+            // - NonDecreasing means that the entire list is a "ramp"
+            // - Decreasing means that there is no [i, j] such that i < j and nums[i] <= nums[j]
+            return match seqlist.subsequences[0] {
+                (NonDecreasing, _) => nums.len() - 1,
+                (Decreasing, _) => 0
+            };
+        }
+        let _ = &seqlist.subsequences;
+        let mut longest_ramp : usize = 0;
+        for i in 0 .. nums.len()-1 {
+            for j in i+longest_ramp+1 .. nums.len() {
+                if (nums[i] <= nums[j]) {
+                    longest_ramp = j - i;
+                }
+            }
+        }
+        longest_ramp as i32
 
         0
         

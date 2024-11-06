@@ -5,19 +5,25 @@ use std::cmp::Ordering;
 //use std::collections::HashMap;
 
 pub enum Direction { NonDecreasing, Decreasing, }
+// is there a way to make this private? only SequenceState needs it...
+impl From<Ordering> for Direction { fn from(value: Ordering) -> Self { match value {
+        Ordering::Greater | Ordering::Equal => Direction::NonDecreasing,
+        Ordering::Lesser => Direction::Decreasing,
+} } }
 
 #[derive(Debug)]
 enum SequenceState<T> {
     Empty,
-    OneItem(T, Range<_>),
-    Sequence(T, Range<_>, Direction),
+    OneItem(T, Range<usize>),
+    Sequence(T, Range<usize>, Direction),
 }
 
-impl<T: Copy> SequenceState<T> {
+impl<T: Ord + Copy> SequenceState<T> {
     // finalize? finish?
-    pub fn finish(self) -> Option<(Direction, Range<_>)> {
+    pub fn finish(self) -> Option<(Direction, Range<usize>)> {
         match self {
-            SequenceState::Empty => None,
+            // doable without turbofish?
+            SequenceState::Empty::<T> => None,
             // technically, a single-item subsequence could be considered as being in either direction.
             // I have arbitrarily chosen 'nondecreasing'.
             SequenceState::OneItem(_, range) => Some( (Direction::NonDecreasing, range) ),
@@ -29,20 +35,20 @@ impl<T: Copy> SequenceState<T> {
         // is there a more appropriate way to write this?
         (*self, retval) = match self {
             // the very first iteration
-            SequenceState::Empty => (SequenceState::OneItem(item, Range { start: index, end: index + 1}), None)
-            SequenceState::OneItem(prev, &cur_range) =>
-                (SequenceState::Sequence(item, Range { start: cur_range.start, end: index + 1},
-                            prev <= item ? Direction::NonDecreasing : Direction::Decreasing
-                ), None),
-            SequenceState::Sequence(prev, &cur_range, dir) if dir == prev.cmp(&item).into() =>
+            SequenceState::Empty => (SequenceState::OneItem(item, Range { start: index, end: index + 1}), None),
+            SequenceState::OneItem(prev, cur_range) => {
+                let dir = if prev <= item { Direction::NonDecreasing } else { Direction::Decreasing };
+                (SequenceState::Sequence(item, Range { start: cur_range.start, end: index + 1}, dir), None)
+            },
+            SequenceState::Sequence(prev, cur_range, dir) if dir == prev.cmp(&item).into() =>
                 // still going up (or down)
                 (SequenceState::Sequence(item, Range { start: cur_range.start, end: index + 1}, dir), None),
             
-            SequenceState::Sequence(prev, &cur_range, dir) =>
+            SequenceState::Sequence(prev, cur_range, dir) =>
                 // we've changed directions. return the current subsequence and start a new one-item
                 // subsequence.
-                (SequenceState::OneItem(item, Range { start: index, end: index + 1}), (dir, cur_range.clone())),
-        }
+                (SequenceState::OneItem(item, Range { start: index, end: index + 1}), (dir, cur_range)),
+        };
         retval
     }
 }
@@ -52,13 +58,8 @@ impl<T: Copy> SequenceState<T> {
 #[derive(Debug)]
 struct RangeSeqBuilder<T>
 {
-    impl From<Ordering> for Direction { fn from(value) -> Self { match value {
-            Ordering::Greater, Ordering::Equal => Direction::NonDecreasing,
-            Ordering::Lesser => Direction::Decreasing,
-    } } }
-
     subsequence_state: SequenceState<T>,
-    subsequences: Vec<(Direction, Range<_>)>,
+    subsequences: Vec<(Direction, Range<usize>)>,
 }
 
 impl<T: Ord + Copy> RangeSeqBuilder<T> {

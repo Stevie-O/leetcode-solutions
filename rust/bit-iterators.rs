@@ -1,11 +1,12 @@
 // allow "x.bit_iter()" for numeric types to return the bit numbers (with LSB=0) that are set in x
-// this is after I learned a bit -- it uses a single generic type for all iterator implementations
+// this final version is based on from_str_radix_it_impl in mod.rs
 
 // bit_iter() returns a sequence of u32s containing the bits that are set in the number
 trait IntoBitIterator { type BitIteratorType : Iterator<Item = u32>; fn bit_iter(self) -> Self::BitIteratorType; }
 struct BitIterator<T>(T);
-macro_rules! define_bit_iterator {
-    ($num_type:ty) => {
+// I learned how to do this from from_str_radix_int_impl
+macro_rules! into_bit_iterator_impl {
+    ($($num_type:ty)*) => {$(
         impl Iterator for BitIterator<$num_type> {
             type Item = u32;
             fn next(&mut self) -> Option<Self::Item> {
@@ -23,13 +24,14 @@ macro_rules! define_bit_iterator {
                 BitIterator(self)
             }
         }
-    }
+    )*}
 }
-define_bit_iterator!(i16);
-define_bit_iterator!(u16);
-define_bit_iterator!(u128);
+// mod.rs line 1379
+into_bit_iterator_impl! { isize i8 i16 i32 i64 i128 usize u8 u16 u32 u64 u128 }
 
 fn main() {
+   println!("bit iterator on 0x40_i8: {:?}", (0x40_i8).bit_iter().collect::<Vec<_>>());
+   println!("bit iterator on 0x80_u8: {:?}", (0x80_u8).bit_iter().collect::<Vec<_>>());
    println!("bit iterator on 0xFF_i16: {:?}", (0xFF_i16).bit_iter().collect::<Vec<_>>());
    println!("bit iterator on 0xFF_u16: {:?}", (0xFF_u16).bit_iter().collect::<Vec<_>>());
    println!("bit iterator on 0x4000_i16: {:?}", (0x4000_i16).bit_iter().collect::<Vec<_>>());

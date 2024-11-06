@@ -1,25 +1,5 @@
 struct Solution {}
 
-use std::ops::Range;
-//use std::collections::HashMap;
-
-/*
-struct RangeFolder<T>
-where T: Ord, Default, Copy
-{
-    enum Direction<T> { Up(T, Range), Down(T, Range) }
-
-    // not sure of a 
-    previous: Option<Direction<T>>,
-    inc_seqs: Vec<Range>,
-    dec_seqs: Vec<Range>,
-}
-
-impl<T> RangeFolder<T> {
-    pub fn fold_next(&mut self, T item)
-}
-*/
-
 impl Solution {
     fn max_width_ramp(nums: Vec<i32>) -> i32 {
         // looks like I'm gonna have to be clever here; O(n^2) is too slow

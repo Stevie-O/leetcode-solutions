@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 struct Solution{}
 
 use std::fmt::{Formatter, Debug};
@@ -307,6 +308,7 @@ const CELL_CONFLICTS : [[usize; NUM_CONFLICTS]; GRID_SIZE] = SudokuSchemeGenerat
 const PLACEMENT_MASK_ANY : PlacementMaskType = (1 << NUM_SYMBOLS) - 1;
 
 #[derive(Copy, Clone)]
+#[allow(dead_code)]
 enum DecodedPlacementMask {
     Solved(usize),
     Unsolved(PlacementMaskType),
@@ -318,6 +320,7 @@ use DecodedPlacementMask::{Solved, Unsolved};
 struct PlacementMask(PlacementMaskType);
 impl Default for PlacementMask { fn default() -> Self { PlacementMask(PLACEMENT_MASK_ANY) } }
 
+#[allow(dead_code)]
 impl PlacementMask {
     pub fn is_solved(&self) -> bool { self.0 < 0 }
     pub fn is_unsolved(&self) -> bool { self.0 >= 0 }
@@ -442,10 +445,34 @@ struct SudokuSolver {
     dead: bool,
 }
 
+struct GridDebug<'a>(&'a [PlacementMask; GRID_SIZE]);
+impl<'a> Debug for GridDebug<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        // max width is: "Unsolved({0,1,2,3,4,5,6,7,8})" = 29 characters
+        // so let's pad that to 31
+        let mut col = 0;
+        f.write_str("\n")?; // fixup
+        for item in self.0 {
+            write!(f, "{:^31}", format!("{:?}", item))?;
+            col += 1;
+            if col >= REGION_SIZE {
+                col = 0;
+                f.write_str("\n")?;
+            } else {
+                f.write_str("|")?;
+            }
+        }
+        Ok(())
+    }
+}
+
 impl Debug for SudokuSolver {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         f.debug_struct("SudokuSolver")
-            .field("grid", &(self.grid.chunks(REGION_SIZE)))
+            // this... did not work out as planned.
+            //.field("grid", &(self.grid.chunks(REGION_SIZE)))
+            //.field("grid", &(self.grid.chunks(REGION_SIZE).collect::<Vec<_>>()))
+            .field("grid", &GridDebug(&self.grid))
             .field("sym_placement", &self.sym_placement)
             .field("sym_placements_left", &self.sym_placements_left)
             .field("unsolved_sym_count", &self.unsolved_sym_count)
@@ -481,6 +508,7 @@ impl SudokuSolver {
         let mut col = 0;
         for cell_value in iterator {
             if let Some(sym) = cell_value {
+                println!("placing symbol #{sym} at row #{row}, col #{col}");
                 solver.try_place_by_row_col(sym, row, col).unwrap();
             }
             col += 1;
@@ -637,18 +665,11 @@ impl Solution {
 
 fn main() {
      for input in [
-                [["5","3",".",".","7",".",".",".","."],
-				 ["6",".",".","1","9","5",".",".","."],
-				 [".","9","8",".",".",".",".","6","."],
-				 ["8",".",".",".","6",".",".",".","3"],
-				 ["4",".",".","8",".","3",".",".","1"],
-				 ["7",".",".",".","2",".",".",".","6"],
-				 [".","6",".",".",".",".","2","8","."],
-				 [".",".",".","4","1","9",".",".","5"],
-				 [".",".",".",".","8",".",".","7","9"]],
+                [["5","3",".",".","7",".",".",".","."],["6",".",".","1","9","5",".",".","."],[".","9","8",".",".",".",".","6","."],["8",".",".",".","6",".",".",".","3"],["4",".",".","8",".","3",".",".","1"],["7",".",".",".","2",".",".",".","6"],[".","6",".",".",".",".","2","8","."],[".",".",".","4","1","9",".",".","5"],[".",".",".",".","8",".",".","7","9"]],
         ]
     {
         println!("input: {:?}", input);
+        #[allow(unused_mut)]
         let mut solver = SudokuSolver::from(
                     input.into_iter().flat_map(|row| row.into_iter().map(|cell_str|
                             match cell_str.chars().next().unwrap() {
@@ -659,6 +680,10 @@ fn main() {
                     )
                     );
         println!("solver: {:?}", solver);
+        while solver.solve_simple() {
+            println!("solved some more cells, trying again");
+            println!("new solver: {:?}", solver);
+        }
         //let ans = Solution::is_valid_sudoku(input.clone());
         //println!("--> is valid board?: {:?}", ans);
     }

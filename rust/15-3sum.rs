@@ -1,5 +1,6 @@
-// 15. 3Sum
-
+// 15. 3Sum (working solution)
+// this one's a bit slower, though
+// I wonder if I could optimize it a bit by finding a partition such that 
 struct Solution{}
 
 use std::collections::HashSet;
@@ -91,6 +92,8 @@ impl Solution {
         // I don't think it's possible to do much better than O(n^2) on this one
         let mut i_range = 0..i_maximum_excl;
         let mut prev_i = None;
+        
+        let max_nums_k = nums[nums.len()-1];
 
         'outer: while let Some(i) = i_range.find(|&i| prev_i.is_none_or(|pi| pi < nums[i])) {
             prev_i = Some(nums[i]);
@@ -102,6 +105,11 @@ impl Solution {
                 prev_j = Some(nums[j]);
 
                 let target_value = 0 - (nums[i] + nums[j]);
+                
+                eprintln!("[i={}]={}, [j={}]={}, looking for {}", i, nums[i], j, nums[j], target_value);
+                
+                // quick O(1) check to see if it's even possible
+                if target_value > max_nums_k { continue; }
 
                 let k_start = std::cmp::max(k_minimum_incl, j + 1);
 
@@ -113,7 +121,17 @@ impl Solution {
                 let k = k_start + (&nums[k_start..]).partition_point(|&item| item < target_value);
                 assert!(k == nums.len() || nums[k] >= target_value);
                 if k < nums.len() {
+                    // okay, there are items in the range [k_start..] that are greater than or equal to target_value
                     if target_value < nums[k] {
+                        // the original logic here was obviously incorrect, because it failed a test case
+                        // target_value < nums[k]
+                        // -(nums[i] + nums[j]) < nums[k]
+                        // -nums[i] < nums[j] + nums[k]
+                        // AHA. the trick is: is k equal to k_start?
+                        // if k is greater than k_start, then it's possible that there's a
+                        // j'>j that pairs with a k' that k_start <= k' < k
+                        // but if k == k_start, then there is such k'
+
                         // so here's the deal: nums[k] > target_value
                         // -(nums[i] + nums[j]) < nums[k]
                         // -nums[i] - nums[j] < nums[k]
@@ -130,7 +148,10 @@ impl Solution {
                         // Therefore, no pair of indices j<j'<k' will solve for nums[i], and we can give up on this value of 'i'.
 
                         // I'm pretty sure there are some circumstances under which we can abandon all subsequent 'i' values, too, but I can't think of what those might be.
-                        break;
+                        if k == k_start {
+                            eprintln!("giving up on i={i}, j={j}, k={k} ({}, {}, {})", nums[i], nums[j], nums[k]);
+                            break;
+                        }
                     } else {
                         // okay, we found a winner
                         /*
@@ -139,6 +160,7 @@ impl Solution {
                         }*/
                         // okay I misread the instructions
                         // 
+                        eprintln!("found solution: {i}, {j}, {k} -> [{}, {}, {}]", nums[i], nums[j], nums[k]);
                         seen.insert([nums[i],nums[j],nums[k]]);
                     }
                 }
@@ -151,6 +173,7 @@ impl Solution {
 fn main() {
     for input in [ 
             vec![34,55,79,28,46,33,2,48,31,-3,84,71,52,-3,93,15,21,-43,57,-6,86,56,94,74,83,-14,28,-66,46,-49,62,-11,43,65,77,12,47,61,26,1,13,29,55,-82,76,26,15,-29,36,-29,10,-70,69,17,49],
+            //vec![-82, -11, -6, 13, 69]
         ]
     {
         // gotta move everything out of testcase at once

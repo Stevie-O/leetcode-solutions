@@ -26,6 +26,9 @@ use std::cell::RefCell;
 use std::collections::BinaryHeap;
 use std::cmp::Reverse;
 impl Solution {
+    pub fn replace_value_in_tree(root: Option<Rc<RefCell<TreeNode>>>) -> Option<Rc<RefCell<TreeNode>>> {
+        
+    }
     pub fn kth_largest_level_sum(root: Option<Rc<RefCell<TreeNode>>>, k: i32) -> i64 {
         // oof, nasty.
         let mut heap = BinaryHeap::new();
@@ -101,12 +104,12 @@ fn build_tree(input: Vec<i32>) -> Option<Rc<RefCell<TreeNode>>> {
     root
 }
 fn main() {
-    for (treedef, k) in [ 
-            (vec![5,8,9,2,1,3,7,4,6], 2)
+    for treedef in [ 
+            vec![5,4,9,1,10,i32::MAX,7]
         ]
     {
         // gotta move everything out of testcase at once
-        println!("input: {:?}, k={}:", treedef, k);
+        println!("input: {:?}, k={}:", treedef);
         let ans = Solution::kth_largest_level_sum(build_tree(treedef), k);
         println!("--> answer: {}", ans);
     }

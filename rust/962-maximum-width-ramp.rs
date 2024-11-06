@@ -144,8 +144,7 @@ impl RangeSeq
 // is this the best way to express this?
 fn find_next_i<I, T>(nums: &[T], supremum: T, mut current_index : usize, mut current_range: (Direction, Range<usize>), subseq_iterator: &mut I) -> usize
 where
-    I : Iterator,
-    <I as Iterator>::Type : &(Direction, Range<usize>),
+    I : Iterator<Type = &(Direction, Range<usize>)>,
     T : Ord
 {
     // GIVEN THAT 
@@ -177,14 +176,32 @@ where
                 // therefore, we can skip to r.end
                 advance_iterator_to(&mut current_index, r.end, &mut current_range, subseq_iterator);
             },
-            (Direction::Decreasing, &r) if r.end == current_index + 1 => { // degenerate case
+            (Direction::Decreasing, &r) if r.end == current_index + 1 => { 
+                // degenerate case. I don't think this should happen?
+                eprintln!("i guess this *can* happen");
                 advance_iterator_to(&mut current_index, r.end, &mut current_range, subseq_iterator);
             }
             (Direction::Decreasing, &r) => {
-                
+                let seek_offset = 
+                    nums[current_index..current_range.end]
+                    // do a binary search of DESCENDING looking for a value that is, basically,
+                    // between @supremum-1 and @supremum. Note that this will always return an Err<usize>
+                    // where [current_index+n] is the index of the first value less than @supremum,
+                    // OR if no match, it will a value such that current_index+n == cr.end
+                    .binary_search_by(|n| 
+                        match (*n).cmp(&nums[current_index]) {
+                            Ordering::Greater | Ordering::Equal => Ordering::Less,
+                            Ordering::Less => Ordering::Greater,
+                        }
+                    )
+                    .err().unwrap();
+                advance_iterator_to(&mut current_index, current_index + seek_offset, &mut current_range, subseq_iterator);
+                // at this point, either current_index == nums.len() or nums[current_index] < supremum
             }
         }
     }
+    
+    current_index
 }
     
 
@@ -227,8 +244,8 @@ impl Solution {
                     // the last element in that range, because nums[r.end-1] is the best possible value
                     // to check.
                     j = match ss_dir {
-                        Direction::NonDecreasing => ss_range.end - 1
-                        Direction::Decreasing => j
+                        Direction::NonDecreasing => ss_range.end - 1,
+                        Direction::Decreasing => j,
                     };
                     while j < ss_range.end {
                         let ij_dir : Direction = nums[i].cmp(&nums[j]).into();
@@ -256,26 +273,17 @@ impl Solution {
                         };
                     }
                 }
-                // okay, so at this point, if there is a ramp longer than
-                // longest_ramp, it starts at an index where nums[i] is
-                // LESS THAN longest_numi
             }
-            let i_range = seqlist.find_index(i).next().unwrap();
-            // if 'i' is in a range that goes DOWN, then it's possible that
-            // i+1 will do better
-            // if 'i' is a range that goes UP, however, any ramp after position i
-            // that begins this same sequence will be WORSE than any ramp that
-            // begins at position i
-            
-            i = match i_range {
-                (Direction::Decreasing, _) => i + 1,
-                (Direction::NonDecreasing, &r) => r.end,
-            }
+            // okay, so at this point, if there is a ramp longer than
+            // longest_ramp, it starts at an index where nums[i] is
+            // LESS THAN longest_numi
+            let next_i = find_next_i(nums.as_slice(), i, longest_numi, &mut i_seq, &mut i_seq_iter);
+            eprintln!("longest_numi = {} i = {} nums[i] = {} next_i = {} nums[next_i] = {:?}",
+                        longest_numi, i, nums[i], next_i, if next_i< nums.len() { Some(nums[i]) } else { None }
+                    );
+            i = next_i;
         }
         longest_ramp as i32
-
-        0
-        
     }}
 fn main() {
     let input : Vec<i32> = vec!

@@ -431,7 +431,7 @@ impl Debug for PlacementMask {
 
 type SymPlacement = [[PlacementMask; NUM_REGIONS]; NUM_REGION_TYPES];
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct SudokuSolver {
     grid: [PlacementMask; GRID_SIZE],
     sym_placement: [SymPlacement; NUM_SYMBOLS],
@@ -440,6 +440,20 @@ struct SudokuSolver {
     touched_cells: u128,
     touched_syms:  PlacementMaskType,
     dead: bool,
+}
+
+impl Debug for SudokuSolver {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.debug_struct("SudokuSolver")
+            .field("grid", &(self.grid.chunks(REGION_SIZE)))
+            .field("sym_placement", &self.sym_placement)
+            .field("sym_placements_left", &self.sym_placements_left)
+            .field("unsolved_sym_count", &self.unsolved_sym_count)
+            .field("touched_cells", &self.touched_cells)
+            .field("touched_syms", &self.touched_syms)
+            .field("dead", &self.dead)
+            .finish()
+    }
 }
 
 impl Default for SudokuSolver {
@@ -616,14 +630,22 @@ impl SudokuSolver {
 }
 
 impl Solution {
-    pub fn solve_sudoku(board: &mut Vec<Vec<char>>) {
+    pub fn solve_sudoku(_board: &mut Vec<Vec<char>>) {
         unimplemented!()
     }
 }
 
 fn main() {
      for input in [
-                [["5","3",".",".","7",".",".",".","."],["6",".",".","1","9","5",".",".","."],[".","9","8",".",".",".",".","6","."],["8",".",".",".","6",".",".",".","3"],["4",".",".","8",".","3",".",".","1"],["7",".",".",".","2",".",".",".","6"],[".","6",".",".",".",".","2","8","."],[".",".",".","4","1","9",".",".","5"],[".",".",".",".","8",".",".","7","9"]],
+                [["5","3",".",".","7",".",".",".","."],
+				 ["6",".",".","1","9","5",".",".","."],
+				 [".","9","8",".",".",".",".","6","."],
+				 ["8",".",".",".","6",".",".",".","3"],
+				 ["4",".",".","8",".","3",".",".","1"],
+				 ["7",".",".",".","2",".",".",".","6"],
+				 [".","6",".",".",".",".","2","8","."],
+				 [".",".",".","4","1","9",".",".","5"],
+				 [".",".",".",".","8",".",".","7","9"]],
         ]
     {
         println!("input: {:?}", input);

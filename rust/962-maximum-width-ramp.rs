@@ -131,10 +131,63 @@ impl RangeSeq
         builder.build()
     }
     
-    pub fn find_index(&self, index : usize) -> _ {
-        match self.subsequences.binary_search()
+    /// Returns an iterator over the subsequences which begins at the first subsequence that contains 
+    /// @vec_index.
+    pub fn find_index(&self, vec_index : usize) -> _ {
+        match self.subsequences.binary_search_by_key(&vec_index, |r| r.start) {
+            Ok(subseq_index) => self.subsequences.iter().skip(subseq_index),
+            Err(subseq_index) => self.subsequences.iter().skip(subseq_index - 1),
+        }
     }
 }
+
+// is this the best way to express this?
+fn find_next_i<I, T>(nums: &[T], supremum: T, mut current_index : usize, mut current_range: (Direction, Range<usize>), subseq_iterator: &mut I) -> usize
+where
+    I : Iterator,
+    <I as Iterator>::Type : &(Direction, Range<usize>),
+    T : Ord
+{
+    // GIVEN THAT 
+    // - @current_index lies within @current_range AND
+    // - @current_range and @subseq_iterator are from a RangeSeq subsequence list
+
+    // Find the next index _n_ of @nums
+    // AFTER @current_index (i.e. starting at @current_index + 1)
+    // such that @nums[n] LESS THAN @supremum
+    // If no such index exists, return nums.len()
+    
+    fn advance_iterator_to(idx: &mut usize, advance_to: usize, cr: &mut _, it: &mut I) {
+        assert!(advance_to > idx); // must move forward
+        assert!(advance_to <= cr.end); // must not try to move directly beyond the current subsequence
+        *idx = advance_to;
+        match it.next() {
+            Some(x) => { *cr = (x.0, x.1.clone()); },
+            None => {},
+        }
+    }
+    
+    // advance by 1 (we need to skip over the initial current_index)
+    advance_iterator_to(&mut current_index, current_index + 1, &mut current_range, subseq_iterator);
+
+    while current_index < nums.len() && nums[current_index] >= supremum {
+        match current_range {
+            (Direction::NonDecreasing, &r) => {
+                // all values from nums[current_index] to nums[r.end-1] are GREATER THAN OR EQUAL TO supremum
+                // therefore, we can skip to r.end
+                advance_iterator_to(&mut current_index, r.end, &mut current_range, subseq_iterator);
+            },
+            (Direction::Decreasing, &r) if r.end == current_index + 1 => { // degenerate case
+                advance_iterator_to(&mut current_index, r.end, &mut current_range, subseq_iterator);
+            }
+            (Direction::Decreasing, &r) => {
+                
+            }
+        }
+    }
+}
+    
+
 
 impl Solution {
     fn max_width_ramp(nums: Vec<i32>) -> i32 {
@@ -153,12 +206,70 @@ impl Solution {
             };
         }
         let _ = &seqlist.subsequences;
+        // the longest "ramp", the value to be returned from this function
         let mut longest_ramp : usize = 0;
-        for i in 0 .. nums.len()-1 {
-            for j in i+longest_ramp+1 .. nums.len() {
-                if (nums[i] <= nums[j]) {
-                    longest_ramp = j - i;
+        // the smallest 'num[i]' such that (i, i+longest_ramp) is a ramp
+        // if i32::MAX was a valid input value, I'd need this to be Option<i32>,
+        // but since the maximum input value is 50_000, this is fine.
+        let mut longest_numi : i32 = i32::MAX;
+        let mut i : usize = 0;
+        let mut i_seq_iter = seqlist.subsequences.iter();
+        let mut i_seq = i_seq_iter.next();
+        while i < nums.len() - longest_ramp - 1 {
+            let mut j : usize = i + longest_ramp + 1;
+            while j < nums.len() {
+                eprintln!("looking for values greater than [{}]={} starting at {}", i, nums[i], j);
+                for subseq in seqlist.find_index(j) {
+                    eprintln!("considering: {:!}", subseq);
+                    let (ss_dir, ss_range) = subseq;
+                    //assert!(ss_range.contains(j));
+                    // if j is in the middle of a NonDecreasing range, immediately slide to
+                    // the last element in that range, because nums[r.end-1] is the best possible value
+                    // to check.
+                    j = match ss_dir {
+                        Direction::NonDecreasing => ss_range.end - 1
+                        Direction::Decreasing => j
+                    };
+                    while j < ss_range.end {
+                        let ij_dir : Direction = nums[i].cmp(&nums[j]).into();
+                        // okay this is a bit thorny. we've got a 2x2 here
+/* https://www.tablesgenerator.com/markdown_tables#
+| i ? j | subseq dir | longest_ramp action | j action                |   |
+|-------|------------|---------------------|-------------------------|---|
+| <=    | decreasing | update longest_ramp | advance by 1            |   |
+| <=    | increasing | update longest_ramp | advance by 1            |   |
+| >     | decreasing | no update           | jump to end of sequence |   |
+| >     | increasing | no update           | advance by 1            |   |
+*/
+                        j = match ij_dir {
+                            Direction::NonDecreasing => { 
+                                longest_ramp = j - i;
+                                longest_numi = nums[i];
+
+                                j + 1
+                            }
+                            Direction::Decreasing =>
+                                match ss_dir {
+                                    Direction::Decreasing => ss_range.end,
+                                    Direction::NonDecreasing => j + 1,
+                                },
+                        };
+                    }
                 }
+                // okay, so at this point, if there is a ramp longer than
+                // longest_ramp, it starts at an index where nums[i] is
+                // LESS THAN longest_numi
+            }
+            let i_range = seqlist.find_index(i).next().unwrap();
+            // if 'i' is in a range that goes DOWN, then it's possible that
+            // i+1 will do better
+            // if 'i' is a range that goes UP, however, any ramp after position i
+            // that begins this same sequence will be WORSE than any ramp that
+            // begins at position i
+            
+            i = match i_range {
+                (Direction::Decreasing, _) => i + 1,
+                (Direction::NonDecreasing, &r) => r.end,
             }
         }
         longest_ramp as i32

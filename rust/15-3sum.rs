@@ -1,6 +1,3 @@
-// 15. 3Sum (working solution)
-// this one's a bit slower, though
-// I wonder if I could optimize it a bit by finding a partition such that 
 struct Solution{}
 
 use std::collections::HashSet;

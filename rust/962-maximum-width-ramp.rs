@@ -1,73 +1,132 @@
 struct Solution {}
 
+use std::ops::Range;
+use std::cmp::Ordering;
+//use std::collections::HashMap;
+
+pub enum Direction { NonDecreasing, Decreasing, }
+
+#[derive(Debug)]
+enum SequenceState<T> {
+    Empty,
+    OneItem(T, Range<_>),
+    Sequence(T, Range<_>, Direction),
+}
+
+impl<T: Copy> SequenceState<T> {
+    // finalize? finish?
+    pub fn finish(self) -> Option<(Direction, Range<_>)> {
+        match self {
+            SequenceState::Empty => None,
+            // technically, a single-item subsequence could be considered as being in either direction.
+            // I have arbitrarily chosen 'nondecreasing'.
+            SequenceState::OneItem(_, range) => Some( (Direction::NonDecreasing, range) ),
+            SequenceState::Sequence(_, range, dir) => Some( (dir, range) ),
+        }
+    }
+    pub fn push(&mut self, index: usize, item: T) -> Option<(Direction, Range<_>)> {
+        let retval : Option<(Direction, Range<_>)>;
+        // is there a more appropriate way to write this?
+        (*self, retval) = match self {
+            // the very first iteration
+            SequenceState::Empty => (SequenceState::OneItem(item, Range { start: index, end: index + 1}), None)
+            SequenceState::OneItem(prev, &cur_range) =>
+                (SequenceState::Sequence(item, Range { start: cur_range.start, end: index + 1},
+                            prev <= item ? Direction::NonDecreasing : Direction::Decreasing
+                ), None),
+            SequenceState::Sequence(prev, &cur_range, dir) if dir == prev.cmp(&item).into() =>
+                // still going up (or down)
+                (SequenceState::Sequence(item, Range { start: cur_range.start, end: index + 1}, dir), None),
+            
+            SequenceState::Sequence(prev, &cur_range, dir) =>
+                // we've changed directions. return the current subsequence and start a new one-item
+                // subsequence.
+                (SequenceState::OneItem(item, Range { start: index, end: index + 1}), (dir, cur_range.clone())),
+        }
+        retval
+    }
+}
+
+
+/// RangeSeqBuilder is used by RangeSeq::new
+#[derive(Debug)]
+struct RangeSeqBuilder<T>
+{
+    impl From<Ordering> for Direction { fn from(value) -> Self { match value {
+            Ordering::Greater, Ordering::Equal => Direction::NonDecreasing,
+            Ordering::Lesser => Direction::Decreasing,
+    } } }
+
+    subsequence_state: SequenceState<T>,
+    subsequences: Vec<(Direction, Range<_>)>,
+}
+
+impl<T: Ord + Copy> RangeSeqBuilder<T> {
+    pub fn new() -> Self { RangeSeqBuilder { subsequence_state: SequenceState::Empty, subsequences: Default::default() } }
+    // fold()? accumulate()? append()? push()?
+    pub fn add(&mut self, item: T) {
+        if let Some(new_subseq) = self.subsequence_state.push(item) {
+            self.subsequences.push(new_subseq);
+        }
+    }
+    // build? finish?
+    pub fn build(self) -> RangeSeq {
+        let RangeSeqBuilder { state, mut subsequences } = self;
+        if let Some(new_subseq) = state.finish() {
+            subsequences.push(new_subseq);
+        }
+        RangeSeq { subsequences: subsequences }
+    }
+}
+
+#[derive(Debug)]
+pub struct RangeSeq {
+    /* okay, my ADHD is too strong to keep all of this in my head at once.
+     * The purpose of this class is to, given a &Vec<T> (or any other Iterator<T>)
+     * for a comparable T (i.e. `where T: Ord`), we can divide it into subsequences
+     * that are each either decreasing or nondecreasing.
+     *
+     * Some examples:
+     * - [1,2,3,4,5] and [1,1,1,1,1] are each comprised of a single nondecreasing sequence
+     * - [1,2,3,5,4] has a nondecreasing sequence [1,2,3,5] and a (degenerate) decreasing sequence [4]
+     * - [1,2,3,6,5,4] is a nondecreasing sequence [1,2,3,6] followed by a decreasing sequence [5,4]
+     * - [5,4,3,2,1] is a single decreasing sequence
+     * - [1,3,2,4,5,7,6,8] is made up of four nondecreasing sequences: [1, 3] [2, 4] [5, 7] [6, 8]
+     *                      also, this example is how I realized that there isn't automatically a decreasing sequence between every nondecreasing one
+     */
+    subsequences: Vec<(Direction, Range<usize>)>,
+    
+    // I'm not sure of a better way to make this "Rusty".
+    
+}
+// I needed help from rustc and the Rust discord server
+// to figure out how to express this
+// I is an Iterator such that I::Item is Copy
+impl<I> RangeSeq
+where
+    I: Iterator,
+    <I as Iterator>::Item : Copy
+{
+    pub fn new(iterator: I) -> Self {
+        let builder = iterator.enumerate()
+            .fold(RangeSeqBuilder::new(), |state, (index, &value)| { state.push(index, value); state })
+            ;
+        builder.build()
+    }
+
+}
+impl RangeSeq {
+    
+}
+
 impl Solution {
     fn max_width_ramp(nums: Vec<i32>) -> i32 {
         // looks like I'm gonna have to be clever here; O(n^2) is too slow
         // okay, first, let's find all DOWNWARD runs. DOWNWARD runs are ranges
         // where all of the elements in the range are GREATER than the next element.
-        let (_, pending_range, mut decseqs) = nums.iter().copied().enumerate().fold(
-            (i32::MIN, None, Vec::new()),
-            |state : (i32, Option<Range<_>>, Vec<Range<_>>), num : (usize, i32)| {
-                let (current_index, current_num) = num;
-                let (prev_num, current_range, mut vec) = state;
-                let new_range : Option<Range<_>>;
-                if current_num >= prev_num {
-                    // this relies on the initial state having current_range be None
-                    // we're going up
-                    if let Some(r) = current_range {
-                        // if we're 
-                        vec.push(r);
-                    }
-                    new_range = None;
-                } else {
-                    // we're going DOWN!
-                    new_range = Some(match current_range {
-                        Some(r) => Range { start: r.start, end: current_index + 1 },
-                        None => Range { start: current_index-1, end: current_index + 1 },
-                    });
-                }
-                (current_num, new_range, vec)
-            }
-        );
-        // if the input ends in a decreasing sequence (this happens in test case 100)
-        // there will still be a pending range
-        if let Some(pending_range) = pending_range { decseqs.push(pending_range); }
-        eprintln!("decseqs = {:?}", decseqs);
+        let seqlist = RangeSeq::new(nums.iter().copied());
+        eprintln!("seqlist = {:?}", seqlist);
 
-/*
-        let mut longest_ramp : usize = 0;
-        let mut i : usize = 0;
-        while i < nums.len() - 1 {
-            let mut j : usize = i + longest_ramp + 1;
-            while j < nums.len() {
-                
-            }
-            
-        }
-        for longest_ramp in (1..nums.len()).rev() {
-            let mut decseq_idx : usize = 0;
-            let mut i : usize = 0;
-            while i < nums.len() - longest_ramp {
-                if nums[i] <= nums[i + longest_ramp] { 
-                    return longest_ramp as i32;
-                }
-                // it should never be possible for decseq_idx to be out-of-bounds here
-                // - the only way for decseq_idx to be out of range is if decseq_idx >= decseqs.len()
-                // - if decseq_idx >= decseqs.len() then there are no pairs [i', j']
-                //      with i' >= i such that nums[i'] > nums[j']
-                // - the only way to reach this part of the code is if nums[i] > nums[i + longest_ramp]
-                if i == decseqs[decseq_idx].start {
-                    // 
-                    i = decseqs[decseq_idx].end;
-                    decseq_idx += 1;
-                } else {
-                    i += 1;
-                }
-            }
-            for i in 0 .. (nums.len() - longest_ramp) {
-            }
-        }
-        */
         0
         
     }}

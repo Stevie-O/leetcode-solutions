@@ -1,7 +1,7 @@
 #[allow(dead_code)]
 struct Solution{}
 
-use std::fmt::{Formatter, Debug};
+use std::fmt::{Formatter, Display, Debug};
 use std::ops::{BitOr, BitOrAssign};
 
 // 37. Sudoku Solver
@@ -49,7 +49,7 @@ const BOX_HEIGHT : usize = 3;
 type PlacementMaskType = i16;
 
 const NUM_REGION_TYPES : usize = 3; // rows, columns, boxes
-const REGION_TYPE_NAMES : [&str; NUM_REGION_TYPES] = ["row", "col", "box"];
+const REGION_TYPE_NAMES : [&str; NUM_REGION_TYPES] = ["Row", "Col", "Box"];
 
 // INVARIANTS. DO NOT CHANGE.
 const GRID_SIZE : usize = NUM_SYMBOLS * NUM_SYMBOLS;
@@ -67,11 +67,24 @@ const BOXES_PER_ROW : usize = REGION_SIZE / BOX_WIDTH;
 // the (COL_HEIGHT-BOX_HEIGHT) cells in the same column but not the same box
 const NUM_CONFLICTS : usize = (REGION_SIZE - 1) + (REGION_SIZE - BOX_WIDTH) + (REGION_SIZE - BOX_HEIGHT);
 
-
 // .0 = region ID (0..NUM_REGIONS), .1 = index (0..REGION_SIZE) within that region
 type RegionIdAndLocation = (usize, usize);
 
 type RegionCellMap = [[usize; NUM_SYMBOLS]; NUM_REGIONS];
+
+struct DebugRegionType(usize);
+impl Debug for DebugRegionType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.write_str(REGION_TYPE_NAMES[self.0])
+    }
+}
+
+struct DebugRegionTypeAndId(usize, usize);
+impl Debug for DebugRegionTypeAndId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.debug_tuple(REGION_TYPE_NAMES[self.0]).field(&self.1).finish()
+    }
+}
 
 struct SudokuSchemeGenerator {}
 
@@ -345,10 +358,15 @@ use SolveStatus::{Solved, Unsolved};
 struct UnsolvedMask(PlacementMaskType);
 impl Default for UnsolvedMask { fn default() -> Self { UnsolvedMask(PLACEMENT_MASK_ANY) } }
 impl UnsolvedMask {
+    /// Returns true if all items are solved
     pub fn is_solved(&self) -> bool { self.0 == 0 }
+    /// Returns true if the specified item is solved
     pub fn is_item_solved(&self, value: usize) -> bool { (self.0 & (1 << value)) == 0 }
+    /// Returns true if the specified item is still unsolved
     pub fn is_item_unsolved(&self, value: usize) -> bool { (self.0 & (1 << value)) != 0 }
-    pub fn mark_item_solved(&mut self, value: usize) -> bool { self.0 &= !(1 << value); self.0 != 0 }
+    /// Marks the specified item as solved. Returns true if that was the last item (so now is_solved() is true)
+    pub fn mark_item_solved(&mut self, value: usize) -> bool { self.0 &= !(1 << value); self.0 == 0 }
+    /// Returns an iterator that yields the list of unsolved items at the time of the call
     pub fn items(&self) -> impl Iterator<Item = usize> { self.0.bit_iter().map(|x| x as usize) }
 }
 impl Debug for UnsolvedMask {
@@ -678,7 +696,7 @@ impl SudokuSolver {
         assert!(symbol < NUM_SYMBOLS);
         if self.dead { return Err("a previous try_place() failed in such a way that this object is no longer usable".into()); }
         if !self.grid[grid_cell].is_candidate(symbol) {
-            return Err(format!("Symbol {symbol} cannot be placed at grid cell #{grid_cell} -> {:?}", self.grid[grid_cell]));
+            return Err(format!("Symbol #{symbol} cannot be placed at grid cell #{grid_cell} -> {:?}", self.grid[grid_cell]));
         }
         
         // place the symbol in that cell
@@ -697,7 +715,7 @@ impl SudokuSolver {
         let grid_cell_locs = CELL_LOCATIONS[grid_cell];
         for (rty, &(rgn_id, cell_index)) in grid_cell_locs.iter().enumerate() {
             if self.unsolved_region_cells[rty][rgn_id].mark_item_solved(cell_index) {
-                println!("region type #{rty} ({}) #{rgn_id} is solved", REGION_TYPE_NAMES[rty]);
+                println!("region type #{rty} ({}) ID #{rgn_id} is solved", REGION_TYPE_NAMES[rty]);
                 self.unsolved_regions[rty].mark_item_solved(rgn_id);
             }
             self.unsolved_region_syms[rty][rgn_id].mark_item_solved(symbol);
@@ -733,7 +751,8 @@ impl SudokuSolver {
                     let removed = placement_map[region_id].remove_candidate(region_cell_index)
                         .map_err(|_| format!("Placing {symbol} at #{grid_cell} ({:?}) excludes that symbol from region type #{rty} #{region_id} index {region_cell_index}, which leaves no place to put that symbol in that region", grid_cell_locs[0]))
                         ?;
-                    assert!(removed, "Placing {symbol} at #{grid_cell} ({:?}) excludes that symbol from region type #{rty} #{region_id} index {region_cell_index}, but it was supposedly not a candidate there", grid_cell_locs[0]);
+                    // this is an error
+                    //assert!(removed, "Placing {symbol} at #{grid_cell} ({:?}) excludes that symbol from region type #{rty} #{region_id} index {region_cell_index}, but it was supposedly not a candidate there", grid_cell_locs[0]);
                 }
             }
         }
@@ -797,7 +816,9 @@ impl SudokuSolver {
                         if mask.count_ones() == 1 {
                             let region_cell_index = mask.ilog2() as usize;
                             let grid_cell = REGION_CELLS[region_type_id][region_id][region_cell_index];
-                            println!("Region type #{region_type_id} #{region_id} only has one possible position left for symbol #{touched_sym}: index {region_cell_index} = grid cell #{grid_cell}");
+                            println!("{:?} only has one possible position left for symbol #{touched_sym}: index {region_cell_index} = grid cell #{grid_cell}",
+                                DebugRegionTypeAndId(region_type_id, region_id)
+                            );
                             self.try_place_by_grid_cell(touched_sym, grid_cell).unwrap();
                             any_progress = true;
                         }

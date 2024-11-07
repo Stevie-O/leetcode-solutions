@@ -383,6 +383,32 @@ impl Debug for UnsolvedMask {
     }
 }
 
+// much like TouchedMask, but used STRICTLY for internal consistency checking purposes
+#[derive(Copy, Clone, Default, PartialEq, Eq)]
+struct UnsolvedMaskBuilder(PlacementMaskType);
+
+impl UnsolvedMaskBuilder {
+    pub fn mark_item_unsolved(&mut self, value : usize) { self.0 |= 1 << value; }
+}
+
+impl BitOr for UnsolvedMaskBuilder {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self { UnsolvedMaskBuilder(self.0 | rhs.0) }
+}
+
+impl BitOrAssign for UnsolvedMaskBuilder {
+    fn bitor_assign(&mut self, rhs: Self) { self.0 |= rhs.0; }
+}
+
+// these impls aren't part of TouchedMask
+impl From<UnsolvedMaskBuilder> for UnsolvedMask {
+    fn from(item: UnsolvedMaskBuilder) -> Self { UnsolvedMask(item.0) }
+}
+
+impl BitOrAssign<UnsolvedMask> for UnsolvedMaskBuilder {
+    fn bitor_assign(&mut self, rhs: UnsolvedMask) { self.0 |= rhs.0; }
+}
+
 #[derive(Copy, Clone, Default, PartialEq, Eq)]
 struct TouchedMask(PlacementMaskType);
 
@@ -553,10 +579,18 @@ struct SudokuSolver {
 
 impl SudokuSolver {
     fn check_consistency(&self) {
+        let mut found_unsolved_region_cells = [[UnsolvedMaskBuilder::default(); NUM_REGIONS]; NUM_REGION_TYPES];
+        let mut found_unsolved_region_syms = [[UnsolvedMaskBuilder::default(); NUM_REGIONS]; NUM_REGION_TYPES];
+        let mut found_unsolved_regions = [UnsolvedMaskBuilder::default(); NUM_REGION_TYPES];
+        let mut found_sym_placements_left = [NUM_SYMBOLS; NUM_SYMBOLS];
+        let mut found_unsolved_symbols = UnsolvedMaskBuilder::default();
+        
         for grid_cell in 0..GRID_SIZE {
             let cell_loc = CELL_LOCATIONS[grid_cell];
             match self.grid[grid_cell].decode() {
                 Solved(symbol) => {
+                    found_sym_placements_left[symbol] -= 1;
+                    
                     // this grid cell is solved
                     for rty in 0..NUM_REGION_TYPES {
                         let (rgn_id, cell_index) = cell_loc[rty];
@@ -571,25 +605,48 @@ impl SudokuSolver {
                             "grid cell #{grid_cell} ({:?}) is solved as #{symbol}, but sym_placement for type #{rty} ({}) #{rgn_id} does not reflect this", cell_loc, REGION_TYPE_NAMES[rty]);
                     }
                 },
-                Unsolved(mask) => {
+                Unsolved(symbol_mask) => {
                     // this grid cell is unsolved
                     for rty in 0..NUM_REGION_TYPES {
                         let (rgn_id, cell_index) = cell_loc[rty];
-                        // this symbol should be marked as 'solved' in unsolved_region_cells
+                        // this cell is unsolved
+                        found_unsolved_region_cells[rty][rgn_id].mark_item_unsolved(cell_index);
+                        found_unsolved_regions[rty].mark_item_unsolved(rgn_id);
+                        found_unsolved_region_syms[rty][rgn_id] |= symbol_mask;
+                        found_unsolved_symbols |= symbol_mask;
+                        // this cell should be marked as 'unsolved' in unsolved_region_cells
                         assert!(self.unsolved_region_cells[rty][rgn_id].is_item_unsolved(cell_index),
                             "grid cell #{grid_cell} ({:?}) is unsolved, but unsolved_region_cells for type #{rty} ({}) #{rgn_id} does not reflect this", cell_loc, REGION_TYPE_NAMES[rty]);
-                        for symbol in mask.items() {
+                        for symbol in symbol_mask.items() {
                             // this symbol should be marked as 'unsolved' in unsolved_region_syms
                             assert!(self.unsolved_region_syms[rty][rgn_id].is_item_unsolved(symbol),
                                 "grid cell #{grid_cell} ({:?}) is solved as #{symbol}, but unsolved_region_syms for type #{rty} ({}) #{rgn_id} does not reflect this", cell_loc, REGION_TYPE_NAMES[rty]);
-                            // this grid cell may be a candidate solution for this symbol
+                            // this grid cell is a candidate solution for this symbol
                             assert!(self.sym_placement[symbol][rty][rgn_id].is_candidate(cell_index),
                                 "grid cell #{grid_cell} ({:?}) may contain #{symbol}, but sym_placement for type #{rty} ({}) #{rgn_id} does not reflect this", cell_loc, REGION_TYPE_NAMES[rty]);
                         }
                     }
                 }
             }
-        }
+        } // for grid_cell
+        
+        // okay, let's check some stuff
+        let found_unsolved_region_cells =
+            found_unsolved_region_cells.map(|r| r.map(|c| c.into()));
+        assert_eq!(self.unsolved_region_cells, found_unsolved_region_cells);
+
+        let found_unsolved_region_syms =
+            found_unsolved_region_syms.map(|r| r.map(|c| c.into()));
+        assert_eq!(self.unsolved_region_syms,  found_unsolved_region_syms);
+
+        let found_unsolved_regions =
+            found_unsolved_regions.map(|r| r.into());
+        assert_eq!(self.unsolved_regions, found_unsolved_regions);
+
+        assert_eq!(self.sym_placements_left, found_sym_placements_left);
+        
+        let found_unsolved_symbols = found_unsolved_symbols.into();
+        assert_eq!(self.unsolved_symbols, found_unsolved_symbols);
     }
 }
 
@@ -797,7 +854,7 @@ impl SudokuSolver {
         for touched_sym in touched_syms.0.bit_iter().map(|sym| sym as usize)
             //.filter(|&sym| self.sym_placements_left[sym] > 0)
         {
-            if self.sym_placements_left[touched_sym] == 0 { continue; }
+            if self.unsolved_symbols.is_item_solved(touched_sym) { continue; }
             // the Rust language design wants me to use iterators and not indices
             // but I'm pretty sure I can't do that here, because I would need to call methods on self
             // while I've borrowed &self.sym_placement
@@ -812,6 +869,11 @@ impl SudokuSolver {
             //      all rows, columns, and boxes (9 + 9 + 9 = 27 regions)
             for region_type_id in 0..NUM_REGION_TYPES {
                 for region_id in 0..NUM_REGIONS {
+                    println!("considering: symbol #{} in {:?} -> {:?}", 
+                        touched_sym, 
+                        DebugRegionTypeAndId(region_type_id, region_id),
+                        self.sym_placement[touched_sym][region_type_id][region_id]
+                    );
                     if let Some(mask) = self.sym_placement[touched_sym][region_type_id][region_id].candidate_mask() {
                         if mask.count_ones() == 1 {
                             let region_cell_index = mask.ilog2() as usize;

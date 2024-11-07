@@ -73,18 +73,32 @@ type RegionIdAndLocation = (usize, usize);
 type RegionCellMap = [[usize; NUM_SYMBOLS]; NUM_REGIONS];
 
 struct DebugRegionType(usize);
+impl DebugRegionType {
+    pub fn with_id(self, id: usize) -> DebugRegion { DebugRegion(self.0, id) }
+}
 impl Debug for DebugRegionType {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         f.write_str(REGION_TYPE_NAMES[self.0])
     }
 }
 
-struct DebugRegionTypeAndId(usize, usize);
-impl Debug for DebugRegionTypeAndId {
+struct DebugRegion(usize, usize);
+impl DebugRegion {
+    pub fn with_index(self, index: usize) -> DebugRegionCell { DebugRegionCell(self, index) }
+}
+impl Debug for DebugRegion {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         f.debug_tuple(REGION_TYPE_NAMES[self.0]).field(&self.1).finish()
     }
 }
+
+struct DebugRegionCell(DebugRegion, usize);
+impl Debug for DebugRegionCell {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{:?}[{}]", self.0, self.1)
+    }
+}
+
 
 struct SudokuSchemeGenerator {}
 
@@ -650,6 +664,38 @@ impl SudokuSolver {
     }
 }
 
+struct CellLocationsDebug {}
+impl Debug for CellLocationsDebug {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        writeln!(f)?;
+        
+        for rty in 0..NUM_REGION_TYPES {
+            writeln!(f, "Region type {}:", REGION_TYPE_NAMES[rty])?;
+            let mut col = 0;
+            for grid_cell in 0..GRID_SIZE {
+                let (region_id, cell_index) = CELL_LOCATIONS[grid_cell][rty];
+                // "Xyz(N)[Y]"
+                //  123456789
+                // add space on both sides
+                write!(f, "{:^11}", format!("{:?}", DebugRegion(rty, region_id).with_index(cell_index)))?;
+                col += 1;
+                if col >= REGION_SIZE {
+                    col = 0;
+                    writeln!(f)?;
+                } else {
+                    write!(f, "|")?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[allow(dead_code)]
+fn debug_cell_metadata() {
+    println!("Cell locations: {:?}", CellLocationsDebug{});
+}
+
 struct GridDebug<'a>(&'a [PlacementMask; GRID_SIZE]);
 impl<'a> Debug for GridDebug<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -721,7 +767,7 @@ impl SudokuSolver {
         let mut col = 0;
         for cell_value in iterator {
             if let Some(sym) = cell_value {
-                println!("placing symbol #{sym} at row #{row}, col #{col}");
+                //println!("placing symbol #{sym} at row #{row}, col #{col}");
                 solver.try_place_by_row_col(sym, row, col).unwrap();
             }
             col += 1;
@@ -751,6 +797,11 @@ impl SudokuSolver {
     pub fn try_place_by_grid_cell(&mut self, symbol: usize, grid_cell: usize) -> Result<(), PlaceError> {
         assert!(grid_cell < GRID_SIZE);
         assert!(symbol < NUM_SYMBOLS);
+        println!("placing symbol #{symbol} at grid cell #{grid_cell} ({:?}) which is curently {:?}", 
+            CELL_LOCATIONS[grid_cell].iter().enumerate().map(
+                |(rty, &(rid, cell_index))| DebugRegion(rty, rid).with_index(cell_index)).collect::<Vec<_>>(),
+            self.grid[grid_cell].decode()
+            );
         if self.dead { return Err("a previous try_place() failed in such a way that this object is no longer usable".into()); }
         if !self.grid[grid_cell].is_candidate(symbol) {
             return Err(format!("Symbol #{symbol} cannot be placed at grid cell #{grid_cell} -> {:?}", self.grid[grid_cell]));
@@ -869,17 +920,18 @@ impl SudokuSolver {
             //      all rows, columns, and boxes (9 + 9 + 9 = 27 regions)
             for region_type_id in 0..NUM_REGION_TYPES {
                 for region_id in 0..NUM_REGIONS {
+                    /*
                     println!("considering: symbol #{} in {:?} -> {:?}", 
                         touched_sym, 
                         DebugRegionTypeAndId(region_type_id, region_id),
                         self.sym_placement[touched_sym][region_type_id][region_id]
-                    );
+                    );*/
                     if let Some(mask) = self.sym_placement[touched_sym][region_type_id][region_id].candidate_mask() {
                         if mask.count_ones() == 1 {
                             let region_cell_index = mask.ilog2() as usize;
                             let grid_cell = REGION_CELLS[region_type_id][region_id][region_cell_index];
                             println!("{:?} only has one possible position left for symbol #{touched_sym}: index {region_cell_index} = grid cell #{grid_cell}",
-                                DebugRegionTypeAndId(region_type_id, region_id)
+                                DebugRegion(region_type_id, region_id)
                             );
                             self.try_place_by_grid_cell(touched_sym, grid_cell).unwrap();
                             any_progress = true;
@@ -900,7 +952,8 @@ impl Solution {
 }
 
 fn main() {
-     for input in [
+    //debug_cell_metadata(); return;
+    for input in [
                 [["5","3",".",".","7",".",".",".","."],["6",".",".","1","9","5",".",".","."],[".","9","8",".",".",".",".","6","."],["8",".",".",".","6",".",".",".","3"],["4",".",".","8",".","3",".",".","1"],["7",".",".",".","2",".",".",".","6"],[".","6",".",".",".",".","2","8","."],[".",".",".","4","1","9",".",".","5"],[".",".",".",".","8",".",".","7","9"]],
         ]
     {

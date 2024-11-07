@@ -501,6 +501,7 @@ impl PlacementMask {
         else { None }
     }
     pub fn solve(&mut self, value: usize) -> TouchedMask {
+        //println!("whatever this is, it was solved with item {value}");
         if /* unlikely */ let Some(solved_value) = self.solved_value() {
             eprintln!("WARNING: somehow we were asked to solve an already-Solved({solved_value}) as {value}");
             // we want to always panic because the code that uses this routine
@@ -709,6 +710,31 @@ fn check_metadata() {
     }
 }
 
+struct CellConflictsDebugger(usize);
+impl Debug for CellConflictsDebugger {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        let conflicts = CELL_CONFLICTS[self.0];
+        let mut coln = 0;
+        let mut line_disp = String::with_capacity(REGION_SIZE + 1);
+        for draw_cell in 0..GRID_SIZE {
+            let draw_char = 
+                if draw_cell == self.0 { '*' }
+                else if conflicts.contains(&draw_cell) { 'X' }
+                else { '.' }
+            ;
+            line_disp.push(draw_char);
+            coln += 1;
+            if coln >= REGION_SIZE {
+                line_disp.push('\n');
+                f.write_str(line_disp.as_str())?;
+                coln = 0;
+                line_disp.clear();
+            }
+        }
+        Ok(())
+    }
+}
+
 #[allow(dead_code)]
 fn debug_region_cells() {
     println!("Region cells:");
@@ -716,6 +742,14 @@ fn debug_region_cells() {
 #[allow(dead_code)]
 fn debug_cell_metadata() {
     println!("Cell locations: {:?}", CellLocationsDebug{});
+}
+#[allow(dead_code)]
+fn debug_conflict_metadata() {
+    println!("Conflict metadata:");
+    for grid_cell in 0..GRID_SIZE {
+        println!("Conflict map for grid cell #{grid_cell}:");
+        println!("{:?}", CellConflictsDebugger(grid_cell));
+    }
 }
 
 struct GridDebug<'a, T: Debug>(&'a [T; GRID_SIZE]);
@@ -829,8 +863,9 @@ impl SudokuSolver {
             return Err(format!("Symbol #{symbol} cannot be placed at grid cell #{grid_cell} -> {:?}", self.grid[grid_cell]));
         }
         
+        self.dead = true; // if an error occurs during placement, leave ourselves in a 'dead' state
         // place the symbol in that cell
-        self.grid[grid_cell].solve(symbol);
+        let removed_syms = self.grid[grid_cell].solve(symbol);
         // one fewer copy of @symbol left to be placed on the board!
         self.sym_placements_left[symbol] -= 1;
         if self.sym_placements_left[symbol] == 0 {
@@ -841,49 +876,70 @@ impl SudokuSolver {
                 println!("remaining symbols: {:?}", self.unsolved_symbols);
             }
         }
-
+        
+        // keep track of which regions's cells/symbols have been solved
         let grid_cell_locs = CELL_LOCATIONS[grid_cell];
         for (rty, &(rgn_id, cell_index)) in grid_cell_locs.iter().enumerate() {
             if self.unsolved_region_cells[rty][rgn_id].mark_item_solved(cell_index) {
-                println!("region type #{rty} ({}) ID #{rgn_id} is solved", REGION_TYPE_NAMES[rty]);
+                println!("region {:?} is solved", DebugRegion(rty, rgn_id));
                 self.unsolved_regions[rty].mark_item_solved(rgn_id);
             }
             self.unsolved_region_syms[rty][rgn_id].mark_item_solved(symbol);
         }
         
-        // sanity check!
-        //debug_assert_eq!(grid_cell_locs[0], (row, col));
-        //debug_assert_eq!(grid_cell_locs[1], (col, row));
-        // end sanity checks
+        self.touched_syms |= removed_syms;
+        // update the candidate mapping for the symbols that were removed from {grid_cell}
+        for removed_symbol in removed_syms.items() {
+            for (rty, (placement_map, (region_id, region_cell_index))) in 
+                self.sym_placement[removed_symbol].iter_mut().zip(grid_cell_locs.into_iter()).enumerate()
+            {
+                //println!("removing candidate: #{removed_symbol} in {:?}", DebugRegion(rty, region_id).with_index(region_cell_index));
+                let removed = placement_map[region_id].remove_candidate(region_cell_index).unwrap();
+                assert!(removed, "remove_candidate somehow failed?");
+            }        
+        }
+
+        // update the sym->cell mapping which tracks where @symbol belongs in each region
         let sym_placement = &mut self.sym_placement[symbol];
-        for (placement_map, (region_id, region_cell_index)) in 
-            sym_placement.iter_mut().zip(grid_cell_locs.into_iter())
+        for (rty, (placement_map, (region_id, region_cell_index))) in 
+            sym_placement.iter_mut().zip(grid_cell_locs.into_iter()).enumerate()
         {
+            println!("marking as solved: #{symbol} is in {:?}", DebugRegion(rty, region_id).with_index(region_cell_index));
             placement_map[region_id].solve(region_cell_index);
         }
         
-        self.dead = true; // if an error occurs during placement, leave ourselves in a 'dead' state
         // look at all cells that conflict with (are same row, column, or box as) the one we just solved
+        println!("conflicts with grid cell #{grid_cell}:");
+        println!("{:?}", CellConflictsDebugger(grid_cell));
         for &other_cell in CELL_CONFLICTS[grid_cell].iter() {
-            let other_cell_locs = CELL_LOCATIONS[other_cell];
+            println!("considering conflict with #{grid_cell}: #{other_cell} ({:?})", self.grid[other_cell].decode());
+            let other_cell_locs = CELL_LOCATIONS[other_cell]; // 3 RegionIdAndLocation items
             let was_touched = self.grid[other_cell].remove_candidate(symbol)
                 .map_err(|_| format!("Placing {symbol} at #{grid_cell} ({:?}) leaves grid cell #{other_cell} ({:?}) unsolvable", grid_cell_locs[0], other_cell_locs[0]))
                 ?;
             if was_touched {
+                println!("removed symbol #{symbol} as a candidate for grid cell #{other_cell} -> {:?}", self.grid[other_cell].decode());
                 //println!("touched cell #{other_cell}");
                 // if we changed the possibility mask for this grid cell, make a note that
                 // we touched that cell AND this symbol
                 self.touched_cells |= 1_u128 << other_cell;
                 self.touched_grid[other_cell].touch_item(symbol);
                 self.touched_syms.touch_item(symbol);
+                // update the region mapping info
                 for (rty, (placement_map, (region_id, region_cell_index)))
                     in sym_placement.iter_mut().zip(other_cell_locs.into_iter()).enumerate()
                 {
+                    // actually wait this should already have been solved by the placement map above
+                    let target_desc = DebugRegion(rty, region_id);
+                    println!("peeking at symbol #{symbol}'s placement in {:?}: {:?}", target_desc, placement_map[region_id].decode());
+                    let target_desc = target_desc.with_index(region_cell_index);
+                    //assert_eq!(placement_map[region_id].decode(), Solved(region_cell_index), "sym_placement[{symbol}][{rty}]{region_id}");
+                    //assert!(placement_map[region_id].is_solved());
                     let removed = placement_map[region_id].remove_candidate(region_cell_index)
-                        .map_err(|_| format!("Placing {symbol} at #{grid_cell} ({:?}) excludes that symbol from region type #{rty} #{region_id} index {region_cell_index}, which leaves no place to put that symbol in that region", grid_cell_locs[0]))
+                        .map_err(|_| format!("Placing #{symbol} at #{grid_cell} ({:?}) excludes that symbol from #{other_cell} {target_desc:?}, which leaves no place to put that symbol in that region", grid_cell_locs[0]))
                         ?;
-                    // this is an error
-                    //assert!(removed, "Placing {symbol} at #{grid_cell} ({:?}) excludes that symbol from region type #{rty} #{region_id} index {region_cell_index}, but it was supposedly not a candidate there", grid_cell_locs[0]);
+                    // this isn't actually an error
+                    assert!(removed, "Placing {symbol} at #{grid_cell} ({:?}) excludes that symbol from #{other_cell} {target_desc:?}, but it was supposedly not a candidate there ({:?})", grid_cell_locs[0], placement_map[region_id]);
                 }
             }
         }
@@ -986,8 +1042,17 @@ impl Solution {
 fn main() {
     check_metadata();
 //debug_cell_metadata(); return;
+//debug_conflict_metadata(); return;
     for input in [
-                [["5","3",".",".","7",".",".",".","."],["6",".",".","1","9","5",".",".","."],[".","9","8",".",".",".",".","6","."],["8",".",".",".","6",".",".",".","3"],["4",".",".","8",".","3",".",".","1"],["7",".",".",".","2",".",".",".","6"],[".","6",".",".",".",".","2","8","."],[".",".",".","4","1","9",".",".","5"],[".",".",".",".","8",".",".","7","9"]],
+                [["5","3",".",".","7",".",".",".","."],
+                 ["6",".",".","1","9","5",".",".","."],
+                 [".","9","8",".",".",".",".","6","."],
+                 ["8",".",".",".","6",".",".",".","3"],
+                 ["4",".",".","8",".","3",".",".","1"],
+                 ["7",".",".",".","2",".",".",".","6"],
+                 [".","6",".",".",".",".","2","8","."],
+                 [".",".",".","4","1","9",".",".","5"],
+                 [".",".",".",".","8",".",".","7","9"]],
         ]
     {
         println!("input: {:?}", input);

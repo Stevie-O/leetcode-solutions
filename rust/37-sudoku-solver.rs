@@ -2,6 +2,7 @@
 struct Solution{}
 
 use std::fmt::{Formatter, Debug};
+use std::ops::{BitOr, BitOrAssign};
 
 // 37. Sudoku Solver
 // Sudoku is rather interesting, structurally:
@@ -48,6 +49,7 @@ const BOX_HEIGHT : usize = 3;
 type PlacementMaskType = i16;
 
 const NUM_REGION_TYPES : usize = 3; // rows, columns, boxes
+const REGION_TYPE_NAMES : [&str; NUM_REGION_TYPES] = ["row", "col", "box"];
 
 // INVARIANTS. DO NOT CHANGE.
 const GRID_SIZE : usize = NUM_SYMBOLS * NUM_SYMBOLS;
@@ -307,14 +309,90 @@ const CELL_CONFLICTS : [[usize; NUM_CONFLICTS]; GRID_SIZE] = SudokuSchemeGenerat
 // a PlacementMask value that means "we haven't ruled anything out"
 const PLACEMENT_MASK_ANY : PlacementMaskType = (1 << NUM_SYMBOLS) - 1;
 
-#[derive(Copy, Clone)]
-#[allow(dead_code)]
-enum DecodedPlacementMask {
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum SolveStatus {
     Solved(usize),
-    Unsolved(PlacementMaskType),
+    Unsolved(UnsolvedMask),
 }
 
-use DecodedPlacementMask::{Solved, Unsolved};
+impl Debug for SolveStatus {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match self {
+            Self::Solved(index) => f.debug_tuple("Solved").field(index).finish(),
+            Self::Unsolved(mask) => {
+                f.write_str("Unsolved(")?;
+                f.debug_set().entries(mask.items()).finish()?;
+                f.write_str(")")
+            }
+        }
+    }
+}
+
+use SolveStatus::{Solved, Unsolved};
+
+
+/// PlacementMask and UnsolvedMask are really similar:
+//  - PlacementMask is used to track EITHER:
+//      "which symbols MIGHT be in this cell" -or- which symbol this cell contains
+//  or  "which cells MIGHT this symbol be in" -or- which cell contains this symbol
+//  - UnsolvedMask is used to track "which symbols are unsolved in this region" or "which regions are unsolved in this grid")
+// the main difference is that it is an ERROR for PlacementMask to reduce to zero,
+//      because that would mean the puzzle is unsolvable.
+// in contrast, it's appropriate (and good!) for UnsolvedMask to be zero, which simply means "fully solved".
+//  - TouchedMask is like UnsolvedMask but it starts _empty_ and then you add elements
+
+#[derive(Copy, Clone, PartialEq, Eq)]
+struct UnsolvedMask(PlacementMaskType);
+impl Default for UnsolvedMask { fn default() -> Self { UnsolvedMask(PLACEMENT_MASK_ANY) } }
+impl UnsolvedMask {
+    pub fn is_solved(&self) -> bool { self.0 == 0 }
+    pub fn is_item_solved(&self, value: usize) -> bool { (self.0 & (1 << value)) == 0 }
+    pub fn is_item_unsolved(&self, value: usize) -> bool { (self.0 & (1 << value)) != 0 }
+    pub fn mark_item_solved(&mut self, value: usize) -> bool { self.0 &= !(1 << value); self.0 != 0 }
+    pub fn items(&self) -> impl Iterator<Item = usize> { self.0.bit_iter().map(|x| x as usize) }
+}
+impl Debug for UnsolvedMask {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        if self.0 == 0 {
+            write!(f, "FullySolved")
+        } else {
+            f.write_str("Unsolved(")?;
+            // keeping this here for future rustc diagnostic output improvements:
+            // f.debug_set(PlacementMaskBitIterator(self.0)).finish()?;
+            f.debug_set().entries(self.items()).finish()?;
+            f.write_str(")")
+        }
+    }
+}
+
+#[derive(Copy, Clone, Default, PartialEq, Eq)]
+struct TouchedMask(PlacementMaskType);
+
+impl TouchedMask {
+    pub fn touch_item(&mut self, value : usize) { self.0 |= 1 << value; }
+    pub fn items(&self) -> impl Iterator<Item = usize> { self.0.bit_iter().map(|x| x as usize) }
+}
+
+impl BitOr for TouchedMask {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self { TouchedMask(self.0 | rhs.0) }
+}
+
+impl BitOrAssign for TouchedMask {
+    fn bitor_assign(&mut self, rhs: Self) { self.0 |= rhs.0; }
+}
+
+impl Debug for TouchedMask {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        if self.0 == 0 {
+            write!(f, "Untouched")
+        } else {
+            f.write_str("Touched(")?;
+            f.debug_set().entries(self.items()).finish()?;
+            f.write_str(")")
+        }
+    }
+}
 
 #[derive(Copy, Clone)]
 struct PlacementMask(PlacementMaskType);
@@ -346,9 +424,9 @@ impl PlacementMask {
         assert!(self.0 < 0, "attempted to add candidate to already-solved tracker");
         self.0 |= (1 as PlacementMaskType) << value;
     }
-    pub fn decode(&self) -> DecodedPlacementMask {
+    pub fn decode(&self) -> SolveStatus {
         if self.0 < 0 { Solved( (self.0 - PlacementMaskType::MIN) as usize ) }
-        else { Unsolved(self.0) }
+        else { Unsolved(UnsolvedMask(self.0)) }
     }
     pub fn solved_value(&self) -> Option<usize> {
         if self.0 < 0 { Some( (self.0 - PlacementMaskType::MIN) as usize ) }
@@ -358,9 +436,22 @@ impl PlacementMask {
         if self.0 >= 0 { Some(self.0) }
         else { None }
     }
-    pub fn solve(&mut self, value: usize) {
-        if !self.is_candidate(value) { panic!("invalid solution attempt"); }
-        self.0 = (value as PlacementMaskType) + PlacementMaskType::MIN;
+    pub fn solve(&mut self, value: usize) -> UnsolvedMask {
+        if /* unlikely */ let Some(solved_value) = self.solved_value() {
+            eprintln!("WARNING: somehow we were asked to solve an already-Solved({solved_value}) as {value}");
+            if solved_value == value {
+                UnsolvedMask(0)
+            } else {
+                panic!("conflicting assignments");
+            }
+        } else {
+            let mask = 1 << value;
+            let was_removed = (self.0 & mask) != 0;
+            if !was_removed { panic!("invalid solution attempt"); }
+            let ret_mask = self.0 & !mask;
+            self.0 = (value as PlacementMaskType) + PlacementMaskType::MIN;
+            UnsolvedMask(ret_mask)
+        }
     }
     pub fn is_candidate(&self, value: usize) -> bool {
         // very strictly speaking it's >= 0
@@ -378,10 +469,11 @@ impl PlacementMask {
 
 // bit_iter() returns a sequence of u32s containing the bits that are set in the number
 trait IntoBitIterator { type BitIteratorType : Iterator<Item = u32>; fn bit_iter(self) -> Self::BitIteratorType; }
-macro_rules! define_bit_iterator {
-    ($num_type:ty, $iterator_type:ident) => {
-        struct $iterator_type ($num_type);
-        impl Iterator for $iterator_type {
+struct BitIterator<T>(T);
+// I learned how to do this from from_str_radix_int_impl
+macro_rules! into_bit_iterator_impl {
+    ($($num_type:ty)*) => {$(
+        impl Iterator for BitIterator<$num_type> {
             type Item = u32;
             fn next(&mut self) -> Option<Self::Item> {
                 if self.0 == 0 { None }
@@ -393,56 +485,92 @@ macro_rules! define_bit_iterator {
             }
         }
         impl IntoBitIterator for $num_type {
-            type BitIteratorType = $iterator_type;
+            type BitIteratorType = BitIterator<$num_type>;
             fn bit_iter(self) -> Self::BitIteratorType {
-                $iterator_type(self)
+                BitIterator(self)
             }
         }
-    }
+    )*}
 }
-define_bit_iterator!(i16, I16BitIterator);
-define_bit_iterator!(u16, U16BitIterator);
-define_bit_iterator!(u128, U128BitIterator);
-
-struct PlacementMaskBitIterator(PlacementMaskType);
-impl Iterator for PlacementMaskBitIterator {
-    type Item = u32;
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.0 == 0 {
-            None
-        } else {
-            let bitnum = self.0.trailing_zeros();
-            self.0 &= self.0 - 1; // this clears the lowest-order bit of self.0
-            Some(bitnum)
-        }
-    }
-}
+// mod.rs line 1379
+into_bit_iterator_impl! { isize i8 i16 i32 i64 i128 usize u8 u16 u32 u64 u128 }
 
 impl Debug for PlacementMask {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        if self.0 < 0 {
-            f.debug_tuple("Solved").field(&(self.0 - PlacementMaskType::MIN)).finish()
-        } else {
-            f.write_str("Unsolved(")?;
-            // keeping this here for future rustc diagnostic output improvements:
-            // f.debug_set(PlacementMaskBitIterator(self.0)).finish()?;
-            f.debug_set().entries(PlacementMaskBitIterator(self.0)).finish()?;
-            f.write_str(")")
-        }
-    }
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> { self.decode().fmt(f) }
 }
 
 type SymPlacement = [[PlacementMask; NUM_REGIONS]; NUM_REGION_TYPES];
 
 #[derive(Clone)]
 struct SudokuSolver {
+    // grid[n] either contains the symbol placed in grid cell #n (numbered across/down), or the set of _possible_ symbols that may be placed in grid cell #n
     grid: [PlacementMask; GRID_SIZE],
+    // sym_placement[n] is placement info for symbol #n
+    //      sym_placement[n][rty][rid] is either the index (0..REGION_SIZE) that symbol #n is placed in inside region type-#rty number-#rid
+    //                                 or the set of _possible_ indices for that symbol in that region
+    //      e.g. sym_placement[2][0][1] is either the column number, or the set of possible column numbers, that symbol #2 may occur in for row (type #0) #1
+    //      e.g. sym_placement[0][1][2] is either the row number, or the set of possible row numbers, that symbol #0 may occur in for column (type #1) #2
     sym_placement: [SymPlacement; NUM_SYMBOLS],
+    // unsolved_region_cells[rty][id] gives a mask of which cells in region type rty, region id id, are unsolved
+    unsolved_region_cells: [[UnsolvedMask; NUM_REGIONS]; NUM_REGION_TYPES],
+    // unsolved_region_syms[rty][id] gives a mask of which symbols in region type rty, region id id, are unsolved
+    unsolved_region_syms: [[UnsolvedMask; NUM_REGIONS]; NUM_REGION_TYPES],
+    // unsolved_regions[n] is the set of regions of type #n that have unsolved cells
+    //  for example, if unsolved_regions[0] is 0b1001, then rows (type #0) #0 and #3 have unsolved grid cells
+    //  if unsolved_regions[0] is 0, *all* of unsolved_regions should be 0, which should mean that all grid cells are solved
+    unsolved_regions: [UnsolvedMask; NUM_REGION_TYPES],
     sym_placements_left: [usize; NUM_SYMBOLS], // [sym] = number of MISSING copies of @sym from the board
-    unsolved_sym_count : usize,                // number of symbols that haven't been fully placed
+    // unsolved_symbols is the set of symbols that have been placed fewer than NUM_REGIONS times (aka sym_placements_left[n] > 0)
+    unsolved_symbols: UnsolvedMask,     // if this is zero, then the entire grid should be solved
+    
+    // these fields track what changes have been made to @grid so we can figure out which 
+    touched_grid: [TouchedMask; GRID_SIZE],
     touched_cells: u128,
-    touched_syms:  PlacementMaskType,
+    touched_syms:  TouchedMask,
+
     dead: bool,
+}
+
+impl SudokuSolver {
+    fn check_consistency(&self) {
+        for grid_cell in 0..GRID_SIZE {
+            let cell_loc = CELL_LOCATIONS[grid_cell];
+            match self.grid[grid_cell].decode() {
+                Solved(symbol) => {
+                    // this grid cell is solved
+                    for rty in 0..NUM_REGION_TYPES {
+                        let (rgn_id, cell_index) = cell_loc[rty];
+                        // this cell should be marked as 'solved' in unsolved_region_cells
+                        assert!(self.unsolved_region_cells[rty][rgn_id].is_item_solved(cell_index),
+                            "grid cell #{grid_cell} ({:?}) is solved, but unsolved_region_cells for type #{rty} ({}) #{rgn_id} does not reflect this", cell_loc, REGION_TYPE_NAMES[rty]);
+                        // this symbol should be marked as 'solved' in unsolved_region_syms
+                        assert!(self.unsolved_region_syms[rty][rgn_id].is_item_solved(symbol),
+                            "grid cell #{grid_cell} ({:?}) is solved as #{symbol}, but unsolved_region_syms for type #{rty} ({}) #{rgn_id} does not reflect this", cell_loc, REGION_TYPE_NAMES[rty]);
+                        // this symbol should correctly be marked as solved in sym_placement
+                        assert_eq!(self.sym_placement[symbol][rty][rgn_id].decode(), Solved(cell_index),
+                            "grid cell #{grid_cell} ({:?}) is solved as #{symbol}, but sym_placement for type #{rty} ({}) #{rgn_id} does not reflect this", cell_loc, REGION_TYPE_NAMES[rty]);
+                    }
+                },
+                Unsolved(mask) => {
+                    // this grid cell is unsolved
+                    for rty in 0..NUM_REGION_TYPES {
+                        let (rgn_id, cell_index) = cell_loc[rty];
+                        // this symbol should be marked as 'solved' in unsolved_region_cells
+                        assert!(self.unsolved_region_cells[rty][rgn_id].is_item_unsolved(cell_index),
+                            "grid cell #{grid_cell} ({:?}) is unsolved, but unsolved_region_cells for type #{rty} ({}) #{rgn_id} does not reflect this", cell_loc, REGION_TYPE_NAMES[rty]);
+                        for symbol in mask.items() {
+                            // this symbol should be marked as 'unsolved' in unsolved_region_syms
+                            assert!(self.unsolved_region_syms[rty][rgn_id].is_item_unsolved(symbol),
+                                "grid cell #{grid_cell} ({:?}) is solved as #{symbol}, but unsolved_region_syms for type #{rty} ({}) #{rgn_id} does not reflect this", cell_loc, REGION_TYPE_NAMES[rty]);
+                            // this grid cell may be a candidate solution for this symbol
+                            assert!(self.sym_placement[symbol][rty][rgn_id].is_candidate(cell_index),
+                                "grid cell #{grid_cell} ({:?}) may contain #{symbol}, but sym_placement for type #{rty} ({}) #{rgn_id} does not reflect this", cell_loc, REGION_TYPE_NAMES[rty]);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 struct GridDebug<'a>(&'a [PlacementMask; GRID_SIZE]);
@@ -474,8 +602,11 @@ impl Debug for SudokuSolver {
             //.field("grid", &(self.grid.chunks(REGION_SIZE).collect::<Vec<_>>()))
             .field("grid", &GridDebug(&self.grid))
             .field("sym_placement", &self.sym_placement)
+            .field("unsolved_region_cells", &self.unsolved_region_cells)
+            .field("unsolved_regions", &self.unsolved_regions)
             .field("sym_placements_left", &self.sym_placements_left)
-            .field("unsolved_sym_count", &self.unsolved_sym_count)
+            .field("unsolved_symbols", &self.unsolved_symbols)
+            .field("touched_grid", &self.touched_grid)
             .field("touched_cells", &self.touched_cells)
             .field("touched_syms", &self.touched_syms)
             .field("dead", &self.dead)
@@ -488,10 +619,15 @@ impl Default for SudokuSolver {
         SudokuSolver {
             grid: [Default::default(); GRID_SIZE],
             sym_placement: [Default::default(); NUM_SYMBOLS],
+            unsolved_region_cells: [[Default::default(); NUM_REGIONS]; NUM_REGION_TYPES],
+            unsolved_region_syms: [[Default::default(); NUM_REGIONS]; NUM_REGION_TYPES],
+            unsolved_regions: [Default::default(); NUM_REGION_TYPES],
             sym_placements_left: [NUM_REGIONS; NUM_SYMBOLS],
-            unsolved_sym_count: NUM_SYMBOLS,
+            unsolved_symbols: Default::default(),
+            
+            touched_grid: [Default::default(); GRID_SIZE],
             touched_cells: 0,
-            touched_syms:  0,
+            touched_syms:  Default::default(),
             dead: false,
         }
     }
@@ -520,7 +656,7 @@ impl SudokuSolver {
         solver
     }
     
-    pub fn is_solved(&self) -> bool { self.unsolved_sym_count == 0 }
+    pub fn is_solved(&self) -> bool { self.unsolved_symbols.is_solved() }
 
     // Attempt to place the symbol with ID @symbol (0 <= @symbol < NUM_SYMBOLS)
     // at grid position (row, col) (0 <= row, col < REGION_SIZE).
@@ -543,18 +679,28 @@ impl SudokuSolver {
             return Err(format!("Symbol {symbol} cannot be placed at grid cell #{grid_cell} -> {:?}", self.grid[grid_cell]));
         }
         
+        // place the symbol in that cell
         self.grid[grid_cell].solve(symbol);
         // one fewer copy of @symbol left to be placed on the board!
         self.sym_placements_left[symbol] -= 1;
         if self.sym_placements_left[symbol] == 0 {
             println!("symbol #{symbol} is fully solved");
-            self.unsolved_sym_count -= 1;
-            if self.unsolved_sym_count == 0 {
+            if self.unsolved_symbols.mark_item_solved(symbol) {
                 println!("all symbols have been solved");
+            } else {
+                println!("remaining symbols: {:?}", self.unsolved_symbols);
             }
         }
 
         let grid_cell_locs = CELL_LOCATIONS[grid_cell];
+        for (rty, &(rgn_id, cell_index)) in grid_cell_locs.iter().enumerate() {
+            if self.unsolved_region_cells[rty][rgn_id].mark_item_solved(cell_index) {
+                println!("region type #{rty} ({}) #{rgn_id} is solved", REGION_TYPE_NAMES[rty]);
+                self.unsolved_regions[rty].mark_item_solved(rgn_id);
+            }
+            self.unsolved_region_syms[rty][rgn_id].mark_item_solved(symbol);
+        }
+        
         // sanity check!
         //debug_assert_eq!(grid_cell_locs[0], (row, col));
         //debug_assert_eq!(grid_cell_locs[1], (col, row));
@@ -565,7 +711,7 @@ impl SudokuSolver {
         {
             placement_map[region_id].solve(region_cell_index);
         }
-
+        
         self.dead = true; // if an error occurs during placement, leave ourselves in a 'dead' state
         for &other_cell in CELL_CONFLICTS[grid_cell].iter() {
             let was_touched = self.grid[other_cell].remove_candidate(symbol)
@@ -575,7 +721,7 @@ impl SudokuSolver {
                 // if we changed the possibility mask for this grid cell, make a note that
                 // we touched that cell AND this symbol
                 self.touched_cells |= 1_u128 << grid_cell;
-                self.touched_syms |= 1 << symbol;
+                self.touched_syms.touch_item(symbol);
             }
             let other_cell_locs = CELL_LOCATIONS[other_cell];
             for (placement_map, (region_id, region_cell_index))
@@ -587,6 +733,7 @@ impl SudokuSolver {
             }
         }
         self.dead = false; // if we got here, everything worked
+        self.check_consistency();
         Ok(())
     }
     
@@ -598,9 +745,10 @@ impl SudokuSolver {
         // touched_{cells,syms} are both bitmasks
         // touched_cells: bit n is set if grid cell #n's candidate mask has been narrowed down
         // touched_syms:  bit n is set if any of the possible positions for symbol #n has been ruled out
+        let touched_grid  = std::mem::replace(&mut self.touched_grid, [Default::default(); GRID_SIZE]);
         let touched_cells = std::mem::replace(&mut self.touched_cells, 0);
-        let touched_syms  = std::mem::replace(&mut self.touched_syms,  0);
-        if touched_cells == 0 && touched_syms == 0 { panic!("unsolvable, at least by this algorithm"); }
+        let touched_syms  = std::mem::replace(&mut self.touched_syms,  Default::default());
+        if touched_cells == 0 { panic!("unsolvable, at least by this algorithm"); }
         let mut any_progress = false;
         // check if we've narrowed the set of possible symbols for a cell down to just one symbol
         // (this is actually pretty rare, in my experience).
@@ -622,7 +770,7 @@ impl SudokuSolver {
         // cell's symbol.  (This is much more common, in my experience.)
         // for example, if we removed '4' as a possible symbol from one cell,
         //      there might be only one '4' left in that same row, column, or box
-        for touched_sym in touched_syms.bit_iter().map(|sym| sym as usize)
+        for touched_sym in touched_syms.0.bit_iter().map(|sym| sym as usize)
             //.filter(|&sym| self.sym_placements_left[sym] > 0)
         {
             if self.sym_placements_left[touched_sym] == 0 { continue; }

@@ -322,7 +322,6 @@ impl SudokuSchemeGenerator {
     }
 }
 
-
 // several constants to deal with
 
 // CELL_LOCATIONS[x] maps grid cell #x to:
@@ -719,8 +718,8 @@ fn debug_cell_metadata() {
     println!("Cell locations: {:?}", CellLocationsDebug{});
 }
 
-struct GridDebug<'a>(&'a [PlacementMask; GRID_SIZE]);
-impl<'a> Debug for GridDebug<'a> {
+struct GridDebug<'a, T: Debug>(&'a [T; GRID_SIZE]);
+impl<'a, T: Debug> Debug for GridDebug<'a, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         // max width is: "Unsolved({0,1,2,3,4,5,6,7,8})" = 29 characters
         // so let's pad that to 31
@@ -783,7 +782,7 @@ type PlaceError = String;
 
 impl SudokuSolver {
     pub fn new() -> Self { Default::default() }
-    
+
     pub fn from<I : Iterator<Item = Option<usize>>>(iterator: I) -> Self {
         let mut solver = Self::new();
         let mut row = 0;
@@ -820,7 +819,7 @@ impl SudokuSolver {
     pub fn try_place_by_grid_cell(&mut self, symbol: usize, grid_cell: usize) -> Result<(), PlaceError> {
         assert!(grid_cell < GRID_SIZE);
         assert!(symbol < NUM_SYMBOLS);
-        println!("placing symbol #{symbol} at grid cell #{grid_cell} ({:?}) which is curently {:?}", 
+        println!("placing symbol #{symbol} at grid cell #{grid_cell} ({:?}) which is currently {:?}", 
             CELL_LOCATIONS[grid_cell].iter().enumerate().map(
                 |(rty, &(rid, cell_index))| DebugRegion(rty, rid).with_index(cell_index)).collect::<Vec<_>>(),
             self.grid[grid_cell].decode()
@@ -871,10 +870,11 @@ impl SudokuSolver {
                 .map_err(|_| format!("Placing {symbol} at #{grid_cell} ({:?}) leaves grid cell #{other_cell} ({:?}) unsolvable", grid_cell_locs[0], other_cell_locs[0]))
                 ?;
             if was_touched {
+                //println!("touched cell #{other_cell}");
                 // if we changed the possibility mask for this grid cell, make a note that
                 // we touched that cell AND this symbol
-                self.touched_cells |= 1_u128 << grid_cell;
-                self.touched_grid[grid_cell].touch_item(symbol);
+                self.touched_cells |= 1_u128 << other_cell;
+                self.touched_grid[other_cell].touch_item(symbol);
                 self.touched_syms.touch_item(symbol);
                 for (rty, (placement_map, (region_id, region_cell_index)))
                     in sym_placement.iter_mut().zip(other_cell_locs.into_iter()).enumerate()
@@ -904,6 +904,15 @@ impl SudokuSolver {
         let touched_cells = std::mem::replace(&mut self.touched_cells, 0);
         let touched_syms  = std::mem::replace(&mut self.touched_syms,  Default::default());
         if touched_cells == 0 { panic!("unsolvable, at least by this algorithm"); }
+        
+        println!("");
+        println!("");
+        println!("*** STARTING SOLVE ITERATION ***");
+        println!("");
+        println!("touched_grid: {:?}", GridDebug(&touched_grid));
+        println!("touched_cells: {:?}", touched_cells.bit_iter().collect::<Vec<_>>());
+        println!("touched_syms: {:?}", touched_syms);
+        println!("");
         let mut any_progress = false;
         // check if we've narrowed the set of possible symbols for a cell down to just one symbol
         // (this is actually pretty rare, in my experience).
@@ -993,9 +1002,14 @@ fn main() {
                     )
                     );
         println!("solver: {:?}", solver);
-        while solver.solve_simple() {
+        while !solver.is_solved() && solver.solve_simple() {
             println!("solved some more cells, trying again");
             println!("new solver: {:?}", solver);
+        }
+        if !solver.is_solved() { println!("FAILED"); }
+        else { 
+            println!("{:?}", solver);
+            println!("SUCCESS");
         }
         //let ans = Solution::is_valid_sudoku(input.clone());
         //println!("--> is valid board?: {:?}", ans);

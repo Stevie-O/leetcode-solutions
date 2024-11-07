@@ -106,58 +106,63 @@ impl SudokuSchemeGenerator {
     const fn compute_rows() -> RegionCellMap {
         // this can be dramatically reworked if we ever get a const version of array::from_fn()
         // https://gendignoux.com/blog/2024/06/17/const-array-from-fn.html
-         let mut out = [[0; NUM_SYMBOLS]; NUM_REGIONS];
+         let mut out = [[0; REGION_SIZE]; NUM_REGIONS];
          let mut row = 0;
          let mut grid_cell = 0;
          while row < NUM_REGIONS {
-             let mut col = 0;
-             while col < NUM_SYMBOLS {
-                 out[row][col] = grid_cell;
-                 grid_cell += 1;
-                 col += 1;
-             }
-             row += 1;
+            let mut col = 0;
+            while col < NUM_SYMBOLS {
+                out[row][col] = grid_cell;
+                grid_cell += 1;
+                col += 1;
+            }
+            row += 1;
          }
          out
     }
     const fn compute_cols() -> RegionCellMap {
-         let mut out = [[0; NUM_SYMBOLS]; NUM_REGIONS];
+         let mut out = [[0; REGION_SIZE]; NUM_REGIONS];
          let mut col = 0;
          while col < NUM_REGIONS {
-             let mut grid_cell = col;
-             let mut row = 0;
-             while row < NUM_SYMBOLS {
-                 out[row][col] = grid_cell;
-                 row += 1;
-                 grid_cell += NUM_SYMBOLS; // aka ROW_WIDTH
-             }
-             col += 1;
+            let mut grid_cell = col;
+            let mut row = 0;
+            while row < REGION_SIZE {
+                out[col][row] = grid_cell;
+                row += 1;
+                grid_cell += REGION_SIZE; // aka ROW_WIDTH
+            }
+            col += 1;
          }
          out
     }
     const fn compute_boxes() -> RegionCellMap {
-         let mut out = [[0; NUM_SYMBOLS]; NUM_REGIONS];
-         // grid cell index of top-left corner of box
-         let mut box0_grid_cell = 0;
-         // grid row index of top-left corner of box
+         let mut out = [[0; REGION_SIZE]; NUM_REGIONS];
+         // grid cell index top-left corner of current box
+         let mut current_box_00_grid_cell = 0;
+         // grid row index of top-left corner of current box
          //let mut box0_row = 0;
          
-         // grid column index of top-left corner of box
-         let mut box0_col = 0;
-         // box number (index into @out)
+         // grid column index of top-left corner of current box
+         let mut current_box_col0 = 0;
+         // current box number (index into @out)
          let mut boxn = 0;
          while boxn < NUM_REGIONS {
-             let mut grid_cell = box0_grid_cell;
-             let mut box_row = 0; // row offset of current cell from box0_row
-             let mut box_col = 0; // col offset of current cell from box0_col
+             let mut grid_cell = current_box_00_grid_cell;
+             let mut box_row = 0; // row offset of current cell into current box
+             let mut box_col = 0; // col offset of current cell from current_box_col0
              let mut box_cell = 0; // index into out
              while box_cell < NUM_SYMBOLS {
                  out[boxn][box_cell] = grid_cell;
-                 grid_cell += 1;
-                 box_col += 1;
+                 grid_cell += 1; // advance one grid cell
+                 box_col += 1;   // advance one column
                  if box_col >= BOX_WIDTH {
+                    // whoops! we went past the rightmost column of the current box
+                    // reset box_col to 0 and move down one row
                      box_col = 0;
                      box_row += 1;
+                     // we need to advance grid_cell to the next row
+                     // grid_cell - BOX_WIDTH is the grid cell at the start of this row
+                     // so grid_cell + REGION_SIZE - BOX_WIDTH is the start of the next row
                      grid_cell += REGION_SIZE /* aka ROW_WIDTH aka ROW_SIZE */
                                   - BOX_WIDTH;
                  }
@@ -166,13 +171,15 @@ impl SudokuSchemeGenerator {
              assert!(box_row == BOX_HEIGHT);
              // move to the next box
              boxn += 1;
-             box0_col += BOX_WIDTH;
-             box0_grid_cell += BOX_WIDTH;
-             if box0_col >= NUM_SYMBOLS {
-                box0_col = 0;
-                // box0_grid_cell is already correct
-                // turns out I didn't need this
-                //box0_row += BOX_HEIGHT;
+             current_box_col0 += BOX_WIDTH;
+             current_box_00_grid_cell += BOX_WIDTH;
+             if current_box_col0 >= REGION_SIZE {
+                // we've hit the end of the current band
+                // move to the next band
+                // move col0 to the first column
+                current_box_col0 = 0;
+                // move current_box_00_grid_cell down (BOX_HEIGHT-1) rows
+                current_box_00_grid_cell += (BOX_HEIGHT - 1) * REGION_SIZE;
              }
          }
          out
@@ -691,6 +698,22 @@ impl Debug for CellLocationsDebug {
     }
 }
 
+
+fn check_metadata() {
+    for grid_cell in 0..GRID_SIZE {
+        for (rty, &(rid, cell_index)) in CELL_LOCATIONS[grid_cell].iter().enumerate() {
+            assert_eq!(grid_cell, REGION_CELLS[rty][rid][cell_index],
+                "grid->region and region->grid maps disagree for cell #{grid_cell}, rty #{rty}, rid #{rid} ({:?})",
+                DebugRegion(rty, rid).with_index(cell_index)
+            );
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn debug_region_cells() {
+    println!("Region cells:");
+}
 #[allow(dead_code)]
 fn debug_cell_metadata() {
     println!("Cell locations: {:?}", CellLocationsDebug{});
@@ -952,7 +975,8 @@ impl Solution {
 }
 
 fn main() {
-    //debug_cell_metadata(); return;
+    check_metadata();
+//debug_cell_metadata(); return;
     for input in [
                 [["5","3",".",".","7",".",".",".","."],["6",".",".","1","9","5",".",".","."],[".","9","8",".",".",".",".","6","."],["8",".",".",".","6",".",".",".","3"],["4",".",".","8",".","3",".",".","1"],["7",".",".",".","2",".",".",".","6"],[".","6",".",".",".",".","2","8","."],[".",".",".","4","1","9",".",".","5"],[".",".",".",".","8",".",".","7","9"]],
         ]

@@ -436,21 +436,23 @@ impl PlacementMask {
         if self.0 >= 0 { Some(self.0) }
         else { None }
     }
-    pub fn solve(&mut self, value: usize) -> UnsolvedMask {
+    pub fn solve(&mut self, value: usize) -> TouchedMask {
         if /* unlikely */ let Some(solved_value) = self.solved_value() {
             eprintln!("WARNING: somehow we were asked to solve an already-Solved({solved_value}) as {value}");
-            if solved_value == value {
-                UnsolvedMask(0)
-            } else {
-                panic!("conflicting assignments");
-            }
+            // we want to always panic because the code that uses this routine
+            // should never encounter this situation
+            /*if solved_value == value {
+                TouchedMask(0)
+            } else {*/
+                panic!("attempt to solve already-solved placement");
+            //}
         } else {
             let mask = 1 << value;
             let was_removed = (self.0 & mask) != 0;
             if !was_removed { panic!("invalid solution attempt"); }
             let ret_mask = self.0 & !mask;
             self.0 = (value as PlacementMaskType) + PlacementMaskType::MIN;
-            UnsolvedMask(ret_mask)
+            TouchedMask(ret_mask)
         }
     }
     pub fn is_candidate(&self, value: usize) -> bool {
@@ -713,23 +715,26 @@ impl SudokuSolver {
         }
         
         self.dead = true; // if an error occurs during placement, leave ourselves in a 'dead' state
+        // look at all cells that conflict with (are same row, column, or box as) the one we just solved
         for &other_cell in CELL_CONFLICTS[grid_cell].iter() {
+            let other_cell_locs = CELL_LOCATIONS[other_cell];
             let was_touched = self.grid[other_cell].remove_candidate(symbol)
-                .map_err(|_| String::from("Placing {symbol} at row {row}, column {col} leaves grid cell #{other_cell} unsolvable"))
+                .map_err(|_| format!("Placing {symbol} at #{grid_cell} ({:?}) leaves grid cell #{other_cell} ({:?}) unsolvable", grid_cell_locs[0], other_cell_locs[0]))
                 ?;
             if was_touched {
                 // if we changed the possibility mask for this grid cell, make a note that
                 // we touched that cell AND this symbol
                 self.touched_cells |= 1_u128 << grid_cell;
+                self.touched_grid[grid_cell].touch_item(symbol);
                 self.touched_syms.touch_item(symbol);
-            }
-            let other_cell_locs = CELL_LOCATIONS[other_cell];
-            for (placement_map, (region_id, region_cell_index))
-                in sym_placement.iter_mut().zip(other_cell_locs.into_iter())
-            {
-                placement_map[region_id].remove_candidate(region_cell_index)
-                    .map_err(|_| String::from("Placing {symbol} at row {row}, column {col} excludes that symbol from region {region_id} cell {cell_index}, which leaves no place to put that symbol in that region"))
-                    ?;
+                for (rty, (placement_map, (region_id, region_cell_index)))
+                    in sym_placement.iter_mut().zip(other_cell_locs.into_iter()).enumerate()
+                {
+                    let removed = placement_map[region_id].remove_candidate(region_cell_index)
+                        .map_err(|_| format!("Placing {symbol} at #{grid_cell} ({:?}) excludes that symbol from region type #{rty} #{region_id} index {region_cell_index}, which leaves no place to put that symbol in that region", grid_cell_locs[0]))
+                        ?;
+                    assert!(removed, "Placing {symbol} at #{grid_cell} ({:?}) excludes that symbol from region type #{rty} #{region_id} index {region_cell_index}, but it was supposedly not a candidate there", grid_cell_locs[0]);
+                }
             }
         }
         self.dead = false; // if we got here, everything worked

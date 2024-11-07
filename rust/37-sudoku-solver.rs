@@ -927,7 +927,14 @@ impl SudokuSolver {
                 self.touched_syms.touch_item(symbol);
                 // update the region mapping info
                 for (rty, (placement_map, (region_id, region_cell_index)))
-                    in sym_placement.iter_mut().zip(other_cell_locs.into_iter()).enumerate()
+                    in sym_placement.iter_mut()
+                        .zip(other_cell_locs.into_iter())
+                        .zip(grid_cell_locs.iter())
+                        .enumerate()
+                        .filter_map(|(rty, ((placement_map, rc1), rc2))|
+                            if rc1.0 != rc2.0 { Some( (rty, (placement_map, rc1))) }
+                            else { None }
+                        )
                 {
                     // actually wait this should already have been solved by the placement map above
                     let target_desc = DebugRegion(rty, region_id);
@@ -939,6 +946,16 @@ impl SudokuSolver {
                         .map_err(|_| format!("Placing #{symbol} at #{grid_cell} ({:?}) excludes that symbol from #{other_cell} {target_desc:?}, which leaves no place to put that symbol in that region", grid_cell_locs[0]))
                         ?;
                     // this isn't actually an error
+                    // okay, after a LOT of deliberation I think I finally got it
+                    // so when we mark cell #0 with a symbol, it means that symbol has to be removed from
+                    // every other cell in the same row, column, or box
+                    // We're then updating the placement candidates for this symbol in THOSE cells
+                    // so when we look at cell #1 (cuz it's in the same row), this loop is checking for
+                    //      the row, column and box that cell #1 belongs to
+                    //      #0 and #1 belong to the same ROW(0) and the same BOX(0), so the symbol 
+                    //      placement for row 0 and box 0 is ALREADY SOLVED.
+                    //      But the symbol placement for the COLUMN (1) is *not* solved.
+                    // So this loop is NECESSARY but only for regions that DIFFER between the two cells
                     assert!(removed, "Placing {symbol} at #{grid_cell} ({:?}) excludes that symbol from #{other_cell} {target_desc:?}, but it was supposedly not a candidate there ({:?})", grid_cell_locs[0], placement_map[region_id]);
                 }
             }

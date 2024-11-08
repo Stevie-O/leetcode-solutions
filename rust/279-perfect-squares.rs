@@ -5,6 +5,7 @@
 //  12 = 9 + 1 + 1 + 1
 //  12 = 4 + 4 + 4
 // so let's try some dynamic programming, shall we?
+// INCOMPLETE (still too slow, alas)
 
 // man, I wish I had isqrt
 
@@ -133,14 +134,22 @@ impl NumSquaresSolver {
             // if @limit copies of @square do not add up to at least @n,
             // then not only will @square not lead to a valid solution,
             // no value less than @square will, either, so we can stop here.
-            if (n / square) > limit { break; }
-            eprintln!("trying {n} - {square}");
-            let answer = self.try_num_squares(n - square, limit - 1);
-            eprintln!("try_num_squares({n} - {square} = {}, limit = {}) => {:?}",
-                        n - square, limit - 1, answer);
+            let num_copies_of_square = n / square;
+            if num_copies_of_square > limit { break; }
+            eprintln!("trying {n} - {num_copies_of_square} * {square}");
+            let removed_square = num_copies_of_square * square;
+            // if we found an exact answer, quit
+            if removed_square == n {
+                _best_square = Some(removed_square);
+                best_answer = Some(num_copies_of_square);
+                break;
+            }
+            let answer = self.try_num_squares(n - removed_square, limit - num_copies_of_square);
+            eprintln!("try_num_squares({n} - {removed_square} = {}, limit = {}) => {:?}",
+                        n - removed_square, limit - num_copies_of_square, answer);
             if let Some(answer) = answer {
-                let answer = 1 + answer; // add in the s'square' we removed
-                _best_square = Some(square);
+                let answer = num_copies_of_square + answer; // add in the s'square' we removed
+                _best_square = Some(removed_square);
                 best_answer = Some(answer);
                 limit = answer;
             }
@@ -167,7 +176,8 @@ struct Solution{}
 fn main() {
     for input in [
                 //12,
-                207,
+                //207,
+                7168,
             ]
     {
         println!("input: {}", input);

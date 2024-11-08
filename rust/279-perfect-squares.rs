@@ -94,7 +94,14 @@ struct NumSquaresSolver(HashMap<u32, u32>);
 
 impl NumSquaresSolver {
     fn new() -> Self { Default::default() }
-    fn try_num_squares(&mut self, n : u32, mut limit: u32) -> Option<u32> {
+    fn try_num_squares(&mut self, n : u32, limit: u32) -> Option<u32> {
+        // this little wrapper makes the logic inside _core simpler to follow
+        match self.try_num_squares_core(n, limit) {
+            Some(ans) if ans <= limit => Some(ans),
+            _ => None,
+        }
+    }
+    fn try_num_squares_core(&mut self, n : u32, mut limit: u32) -> Option<u32> {
         if n > 0 && limit == 0 { return None; }
         // for 0, 1, 2, 3: it's a sum of n '1's
         if n < 4 { return Some(n); }
@@ -113,26 +120,29 @@ impl NumSquaresSolver {
         }
         if limit == 1 { return None; }
         let _input_limit = limit; 
+        
+        // okay, so there's definitely an optimization somewhere in here, though
+        // I can't quite see what it _is_ just yet
+        // okay I've got it
 
         let mut _best_square = None;
         let mut best_answer = None;
         for square in (1..=sqrt).rev().map(|x| x * x) {
+            // here's the optimization: if we remove @square, we aren't removing
+            // any squares GREATER than @square from @n
+            // if @limit copies of @square do not add up to at least @n,
+            // then not only will @square not lead to a valid solution,
+            // no value less than @square will, either, so we can stop here.
+            if (n / square) > limit { break; }
             eprintln!("trying {n} - {square}");
             let answer = self.try_num_squares(n - square, limit - 1);
             eprintln!("try_num_squares({n} - {square} = {}, limit = {}) => {:?}",
                         n - square, limit - 1, answer);
             if let Some(answer) = answer {
                 let answer = 1 + answer; // add in the s'square' we removed
-                // bah. is_none_or is 1.82 and Leetcode is is still on 1.79
-                match best_answer {
-                    Some(ba) if ba <= answer => {}
-                    None | Some(_) => {
-//                if best_answer.clone().is_none_or(|r| r > answer) {
-                        _best_square = Some(square);
-                        best_answer = Some(answer);
-                          limit = answer;
-                     },
-                };
+                _best_square = Some(square);
+                best_answer = Some(answer);
+                limit = answer;
             }
         }
         if let Some(answer) = best_answer {
@@ -153,10 +163,11 @@ impl Solution {
     }
 }
 
-struct xSolution{}
-fn xmain() {
+struct Solution{}
+fn main() {
     for input in [
-                12,
+                //12,
+                207,
             ]
     {
         println!("input: {}", input);

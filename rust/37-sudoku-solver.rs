@@ -1,7 +1,7 @@
 #[allow(dead_code)]
 struct Solution{}
 
-use std::fmt::{Formatter, Display, Debug};
+use std::fmt::{Formatter, Debug};
 use std::ops::{BitOr, BitOrAssign};
 
 // 37. Sudoku Solver
@@ -72,7 +72,9 @@ type RegionIdAndLocation = (usize, usize);
 
 type RegionCellMap = [[usize; NUM_SYMBOLS]; NUM_REGIONS];
 
+#[allow(dead_code)]
 struct DebugRegionType(usize);
+#[allow(dead_code)]
 impl DebugRegionType {
     pub fn with_id(self, id: usize) -> DebugRegion { DebugRegion(self.0, id) }
 }
@@ -890,7 +892,7 @@ impl SudokuSolver {
         self.touched_syms |= removed_syms;
         // update the candidate mapping for the symbols that were removed from {grid_cell}
         for removed_symbol in removed_syms.items() {
-            for (rty, (placement_map, (region_id, region_cell_index))) in 
+            for (_rty, (placement_map, (region_id, region_cell_index))) in 
                 self.sym_placement[removed_symbol].iter_mut().zip(grid_cell_locs.into_iter()).enumerate()
             {
                 //println!("removing candidate: #{removed_symbol} in {:?}", DebugRegion(rty, region_id).with_index(region_cell_index));
@@ -1051,8 +1053,31 @@ impl SudokuSolver {
 }
 
 impl Solution {
+    #[allow(dead_code)]
     pub fn solve_sudoku(_board: &mut Vec<Vec<char>>) {
         unimplemented!()
+    }
+}
+
+// looks like this is the easiest way to make this work
+struct PuzzleInput<'a>(Box<dyn Iterator<Item = char> + 'a>);
+impl<'a> From<[[&'a str; REGION_SIZE]; NUM_REGIONS]> for PuzzleInput<'a> {
+    fn from(arg: [[&'a str; REGION_SIZE]; NUM_REGIONS]) -> Self {
+        PuzzleInput(
+        Box::new(
+            arg.into_iter()
+                .flat_map(|r| r.into_iter())
+                .map(|s| s.chars().next().unwrap_or(' '))
+        ) as _
+        )
+    }
+}
+impl<'a> From<&'a str> for PuzzleInput<'a> {
+    fn from(arg: &'a str) -> Self {
+        assert_eq!(arg.len(), GRID_SIZE, "arg.len() must be equal to GRID_SIZE");
+        PuzzleInput(
+            Box::new(arg.chars()) as _
+        )
     }
 }
 
@@ -1061,6 +1086,7 @@ fn main() {
 //debug_cell_metadata(); return;
 //debug_conflict_metadata(); return;
     for input in [
+/*
                 [["5","3",".",".","7",".",".",".","."],
                  ["6",".",".","1","9","5",".",".","."],
                  [".","9","8",".",".",".",".","6","."],
@@ -1070,18 +1096,25 @@ fn main() {
                  [".","6",".",".",".",".","2","8","."],
                  [".",".",".","4","1","9",".",".","5"],
                  [".",".",".",".","8",".",".","7","9"]],
+*/
+
+                // these are from https://github.com/t-dillon/tdoku/blob/master/test/test_puzzles
+                //".5..83.17...1..4..3.4..56.8....3...9.9.8245....6....7...9....5...729..861.36.72.4",
+                //"2.6.3......1.65.7..471.8.5.5......29..8.194.6...42...1....428..6.93....5.7.....13",
+                //"6...5.....73..8.2.854.27...2.17..53.4...69..7.8....9...273.1.84.6.54...93.......1",
+                // the above all pass even with my original, extremely naive and simplistic algorithm
+                
+                "........8..3...4...9..2..6.....79.......612...6.5.2.7...8...5...1.....2.4.5.....3",
+                //"........2..8.1.9..5....3.4....1.93...6..3..8...37......4......53.1.7.8..2........",
+                //".....5..3..9....4..81.4.......7.......4..2..68...14.3.......2...4...6..79...5..1.",
         ]
     {
         println!("input: {:?}", input);
-        #[allow(unused_mut)]
+        let input_iterator : PuzzleInput = input.into();
         let mut solver = SudokuSolver::from(
-                    input.into_iter().flat_map(|row| row.into_iter().map(|cell_str|
-                            match cell_str.chars().next().unwrap() {
-                                ch @ '1' ..= '9' => Some( (ch.to_digit(10).unwrap() - 1) as usize ),
-                                _ => None,
-                            }
-                        )
-                    )
+                    input_iterator.0.map(|ch| match ch {
+                                            ch @ '1' ..= '9' => Some( (ch.to_digit(10).unwrap() - 1) as usize ),
+                                            _  => None })
                     );
         println!("solver: {:?}", solver);
         while !solver.is_solved() && solver.solve_simple() {

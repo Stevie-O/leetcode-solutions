@@ -81,7 +81,7 @@ impl Solution {
                     // there might a way to do this in O(log n) time -- the problem seems similar
                     // to the "find median of two sorted arrays" problem -- but the fact is that
                     // this is O(n log n) time which is probably fine
-                    let mut best_answer = arr_slice.len();
+                    let mut best_answer = last.start;
                     println!("best answer: {best_answer}");
                     for first_keep in first.clone() {
                         let first_keep = first_keep + 1;
@@ -103,7 +103,8 @@ fn main() {
     for input in [
         //vec![1,2,3,10,4,2,3,5],
         //vec![2,2,2,1,1,1],
-        vec![13,0,14,7,18,18,18,16,8,15,20],
+        //vec![13,0,14,7,18,18,18,16,8,15,20],
+        vec![36,6,1,19,26,24,27,34,2,16,31,10,8,2,10,14,29,35,37],
     ]
     {
         println!("input: {input:?}");
